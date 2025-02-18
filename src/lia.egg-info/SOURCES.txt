@@ -1,0 +1,16 @@
+README.md
+pyproject.toml
+src/lia/__init__.py
+src/lia/analysis_context.py
+src/lia/cli.py
+src/lia/lia.py
+src/lia/tools.py
+src/lia.egg-info/PKG-INFO
+src/lia.egg-info/SOURCES.txt
+src/lia.egg-info/dependency_links.txt
+src/lia.egg-info/entry_points.txt
+src/lia.egg-info/requires.txt
+src/lia.egg-info/top_level.txt
+src/lia/agent/__init__.py
+src/lia/agent/context_manager_agent.py
+tests/test_cli.py

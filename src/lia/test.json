@@ -1,0 +1,15 @@
+{
+    "name": "Test Analysis",
+    "objective": "Study the impact of tariffs on Virginia Farmers.",
+    "key_questions": [
+        "What are the economic implications of tariffs on Virginians?",
+        "How do tariffs affect the cost of living for Virginians?",
+        "What are the potential benefits and drawbacks of tariffs for Virginia's economy?",
+        "How might tariffs impact Virginia's trade relationships with other states and countries?",
+        "What role do tariffs play in shaping Virginia's economic development and growth?"
+    ],
+    "constraints": [],
+    "methodology": {
+        "steps": []
+    }
+}

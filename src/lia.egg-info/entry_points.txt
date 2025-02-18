@@ -1,0 +1,2 @@
+[console_scripts]
+lia = lia.cli:app

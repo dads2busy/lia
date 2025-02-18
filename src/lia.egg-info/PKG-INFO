@@ -1,0 +1,8 @@
+Metadata-Version: 2.2
+Name: lia
+Version: 0.1.0
+Summary: Lia is a local intelligence assistant
+Author-email: Dustin Machi <dm8qs@virginia.edu>
+Requires-Python: >=3.10
+Requires-Dist: typer==0.9.1
+Requires-Dist: pydantic>2.0.0

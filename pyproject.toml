@@ -1,0 +1,14 @@
+[project]
+name = "lia"
+version = "0.1.0"
+description = "Lia is a local intelligence assistant"
+authors = [
+    {name="Dustin Machi", email="dm8qs@virginia.edu"}
+]
+requires-python = ">=3.10"
+dependencies=[
+    "typer==0.9.1",
+    "pydantic>2.0.0"
+]
+[project.scripts]
+lia = "lia.cli:app"
