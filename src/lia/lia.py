@@ -9,7 +9,6 @@ import json
 import os
 import shlex
 from lia.agent import load_agent,list_agents,AgentDeps
-from lia.agent.context_manager_agent import getAgent as getContextManagerAgent
 
 import pprint
 
@@ -20,26 +19,30 @@ class Lia(cmd.Cmd):
     """
     # identchars="do_"
     message_history=[]
-    prompt = 'Lia > '
+    prompt = '(Lia) > '
     def __init__(self,context:AnalysisContext,file:Union[str|None],options):
         super().__init__()
         self.context = context
         self.file = file
         self.options = options
-        # self.model_name = "llama3-groq-tool-use"
-        self.model_name = "djm-tools-8b2"
-        self.base_url = "http://localhost:11434/v1"
-        self.api_key = "none"
-        self.model = OpenAIModel(model_name=self.model_name,base_url=self.base_url,api_key=self.api_key)
+
+        self.default_model = OpenAIModel(model_name=self.options.model_name,base_url=self.options.model_base_url,api_key=self.options.model_api_key)
 
         # self.model_name = "gpt-4o"
         # self.api_key = "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"
         # self.model = OpenAIModel(model_name=self.model_name,api_key=self.api_key)
 
-        # self.context_manager_agent = getContextManagerAgent(model=self.model)
-        self.context_manager_agent = getContextManagerAgent(model=self.model)
-        # if options.debug:
-        #     pprint.pp(self.context_manager_agent,indent=2)
+        # self.default_agent = getContextManagerAgent(model=self.model)
+        if options.agent is not None:
+            self.default_agent = load_agent(options.agent,model=self.default_model)
+        else:
+            self.default_agent = load_agent('context_manager_agent', model=self.default_model)
+
+        if self.default_agent.name is not None and options.agent is not None:
+            self.prompt = f"({self.default_agent.name}) >"
+ 
+        if options.debug:
+            pprint.pp(self.default_agent,indent=2)
             
     def precmd(self, line):
         if line.startswith('/'):
@@ -82,7 +85,7 @@ class Lia(cmd.Cmd):
 
         if len(args)<2:
             print("Please provide a position and a question to update.")
-            print("/updateQuery 2 What is the new question?")
+            print("/updateQuuestion 2 What is the new question?")
             return ''
         position = int(args[0])
         newq = ' '.join(args[1:])
@@ -169,12 +172,32 @@ class Lia(cmd.Cmd):
         else:
             print("No file specified to save context.")
         return ''
+
+    def do_help(self,command):
+        if command == '':
+            print("Commands:")
+            for name in dir(self):
+                if name.startswith("do_") and name!="do_EOF":
+                    print(f"\t{name.replace("do_","")}")
+            print("To execute a command proceed it with a '/'.  For example '/help'")
+        else:
+            cmd.Cmd.do_help(self,command)     
+            
+    def emptyline(self):
+        self.prompt
     
+    def do_listAgents(self,param):
+        """List the individual agents in the system"""
+        agents = list_agents()
+        print(f"Agents:")
+        for agent in agents:
+            print(f"  {agent}")
+            
     def do_send(self, user_input):
         """Send a message to the context manager agent"""     
         with capture_run_messages() as messages: 
             try:
-                response = self.context_manager_agent.run_sync(user_input,message_history=self.message_history,deps=AgentDeps(analysis_context=self.context),model_settings={'temperature': .9})    
+                response = self.default_agent.run_sync(user_input,message_history=self.message_history,deps=AgentDeps(analysis_context=self.context),model_settings={'temperature': .1})    
                 newmsgs = response.new_messages()
                 if self.options.debug:
                     print("***************\nNew Messages:")
@@ -188,15 +211,5 @@ class Lia(cmd.Cmd):
                 print('cause:', repr(e.__cause__))
                 pprint.pp(newmsgs,indent=2)
 
-    def do_help(self,command):
-        if command == '':
-            print("Commands:")
-            for name in dir(self):
-                if name.startswith("do_") and name!="do_EOF":
-                    print(f"\t{name.replace("do_","")}")
-            print("To execute a command proceed it with a '/'.  For example '/help'")
-        else:
-            cmd.Cmd.do_help(self,command)     
-    def emptyline(self):
-        self.prompt
+
    
