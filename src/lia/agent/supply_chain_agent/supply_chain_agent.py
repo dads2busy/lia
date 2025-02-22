@@ -10,7 +10,7 @@ from lia.agent import load_agent_tool
 import json
 
 class SupplyChainAgent(Agent):
-    def __init__(self, model,retries:int=1):
+    def __init__(self, model,result_type=str,retries:int=1):
         name = "Supply Chain Agent"
         system_prompt = (
             "You are an expert in supply chains.\n"
@@ -23,9 +23,9 @@ class SupplyChainAgent(Agent):
             "5. Combine results into a JSON.  Output the JSON only."
         )  
         tools = [
-            load_agent_tool('component_analysis_agent',model=model)
+            # load_agent_tool('component_analysis_agent',model=model)
         ]
         
         super().__init__(model=model, name=name, system_prompt=system_prompt,
-                         deps_type=None, result_type=str, tools=tools,retries=retries)
+                         deps_type=None, result_type=result_type, tools=tools,retries=retries)
 

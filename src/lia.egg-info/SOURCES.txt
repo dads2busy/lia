@@ -2,6 +2,7 @@ README.md
 pyproject.toml
 src/lia/__init__.py
 src/lia/analysis_context.py
+src/lia/ateam.py
 src/lia/cli.py
 src/lia/lia.py
 src/lia/tools.py
@@ -12,5 +13,15 @@ src/lia.egg-info/entry_points.txt
 src/lia.egg-info/requires.txt
 src/lia.egg-info/top_level.txt
 src/lia/agent/__init__.py
-src/lia/agent/context_manager_agent.py
+src/lia/agent/component_analysis_agent/__init__.py
+src/lia/agent/component_analysis_agent/component_analysis_agent.py
+src/lia/agent/context_manager_agent/__init__.py
+src/lia/agent/context_manager_agent/context_manager_agent.py
+src/lia/agent/network_analysis_agent/__init__.py
+src/lia/agent/network_analysis_agent/network_analysis_agent.py
+src/lia/agent/network_analysis_agent/network_analyzer.py
+src/lia/agent/network_analysis_agent/random_network_generator.py
+src/lia/agent/supply_chain_agent/__init__.py
+src/lia/agent/supply_chain_agent/supply_chain_agent.py
+src/lia/agent/supply_chain_agent/supply_chain_network_generatory.py
 tests/test_cli.py

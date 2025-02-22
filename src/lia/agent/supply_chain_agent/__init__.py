@@ -9,11 +9,11 @@ def getAgent(**kwargs) -> SupplyChainAgent:
 
 def getAgentTool(**kwargs):
     agent = getAgent(**kwargs)
-    async def agent_tool(ctx: RunContext[None], product: str) -> str:
+    async def supply_chain_agent_tool(product: str) -> str:
         print(f"Using SupplyChainAgentTool: {product}")
         
         r = await agent.run(
-            f'Please generate a supply chain network for ${product}',
-            usage = ctx.usage
+            f'Please generate a supply chain network for ${product}'
         )
         return r.data
+    return supply_chain_agent_tool

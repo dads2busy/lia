@@ -8,11 +8,11 @@ def getAgent(**kwargs) -> NetworkAnalysisAgent:
 
 def getAgentTool(**kwargs):
     agent = getAgent(**kwargs)
-    async def agent_tool(ctx: RunContext[None], input: str) -> str:
+    async def network_analysis_agent_tool(input: str) -> str:
         print(f"Using NetworkAnalysisAgentTool: {str}")
         
         r = await agent.run(
-            input,
-            usage = ctx.usage
+            input
         )
         return r.data
+    return network_analysis_agent_tool

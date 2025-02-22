@@ -1,5 +1,6 @@
 from .component_analysis_agent import ComponentAnalysisAgent
 from pydantic_ai import RunContext
+from typing import List
 
 def getAgent(**kwargs) -> ComponentAnalysisAgent:
     """
@@ -9,11 +10,11 @@ def getAgent(**kwargs) -> ComponentAnalysisAgent:
 
 def getAgentTool(**kwargs):
     agent = getAgent(**kwargs)
-    async def agent_tool(product: str) -> str:
+    async def component_analysis_agent_tool(product: str) -> List[str]:
         print(f"Using ComponentAnalysisTool: {product}")
         
         r = await agent.run(
             f'Please define the components for ${product}'
         )
         return r.data
-    return agent_tool
+    return component_analysis_agent_tool
