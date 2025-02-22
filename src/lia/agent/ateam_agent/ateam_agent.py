@@ -68,7 +68,6 @@ class ATeamAgent(Agent):
             "For each of these experts, generate a name and prompt describing their role as experts.",
             "You will then send the list of team members to the create_team tool to establish the team.",
             "Once a team has been gathered, you will lead the discussion for addressing the users questions.",
-            "Verify "
             "If you need any clarification, you can do so by preceding the question with '@user_question'."
         ])
         if system_prompt is None:
@@ -79,10 +78,7 @@ class ATeamAgent(Agent):
         create_team = get_create_team_tool(model=model)
         
         tools = [create_team]
-        
-        
-
-        
+        The         
         super().__init__(model=model, name=name, system_prompt=system_prompt,
                          deps_type=None, result_type=result_type, tools=tools,retries=retries)
     
