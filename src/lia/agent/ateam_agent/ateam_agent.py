@@ -26,7 +26,7 @@ class TeamMember():
 def create_agent(name:str,role:str,model:OpenAIModel):
     system_prompt = role + ' '.join([
         f"Engage in discussion with team members to further user's objective.  Your name is {name}.",
-        "Responses from other team members should be inspected and questionsed to make sure they are accurate and complete."
+        "Responses from other team members should be inspected and questioned to make sure they are accurate and complete."
     ])
     # print(f"Create Agent : {name} Prompt: {system_prompt}")
     return Agent(
@@ -64,7 +64,7 @@ class ATeamAgent(Agent):
     def __init__(self, model=default_model,name:str="ATeamAgent",tools=[],system_prompt=None, result_type=str,retries:int=5):
         base_prompt = ' '.join([
             "Your role is to assemble a team of experts to address the user's question or objective.",
-            "Generate a list of 1-3 experts with diverse areas of expertise related to the objective.",
+            "Generate a list of 2-5 experts with diverse areas of expertise related to the objective.",
             "For each of these experts, generate a name and prompt describing their role as experts.",
             "You will then send the list of team members to the create_team tool to establish the team.",
             "Once a team has been gathered, you will lead the discussion for addressing the users questions.",
