@@ -178,7 +178,7 @@ class Lia(cmd.Cmd):
             print("Commands:")
             for name in dir(self):
                 if name.startswith("do_") and name!="do_EOF":
-                    print(f"\t{name.replace("do_","")}")
+                    print(f"\t{name.replace('do_','')}")
             print("To execute a command proceed it with a '/'.  For example '/help'")
         else:
             cmd.Cmd.do_help(self,command)     

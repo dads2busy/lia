@@ -78,7 +78,7 @@ class ATeamAgent(Agent):
         create_team = get_create_team_tool(model=model)
         
         tools = [create_team]
-        The         
+
         super().__init__(model=model, name=name, system_prompt=system_prompt,
                          deps_type=None, result_type=result_type, tools=tools,retries=retries)
     
