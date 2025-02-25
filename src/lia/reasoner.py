@@ -8,8 +8,7 @@ from pydantic_ai.models.openai import OpenAIModel
 from pydantic_ai import capture_run_messages, UnexpectedModelBehavior, Agent
 from lia.agent import load_agent, list_agents
 from dataclasses import dataclass
-from lia.agent.message_routing_agent.message_routing_agent import MessageRoutingAgent,AgentMessage
-from lia.agent.ateam_agent.ateam_agent import RegisteredAgent
+from lia.agent.reasoning_agent.reasoning_agent import create_python_executor_tool
 import re
 
 class Reasoner:
@@ -42,17 +41,25 @@ class Reasoner:
     
     def create_hemispheres(self,model):
         self.left = Agent(model,
+            tools=[create_python_executor_tool()],
             system_prompt = 
                 """
                     You represent the left hemisphere brain of a reasoning agent. Your name is "Lefty".
+                    The create_python_executor_tool is available to execute any python code you generate 
+                    for searching the web or performing other analysis.  It has libraries such as pandas,
+                    scipy,duckdb availabe for your use.
                     Given a problem or objective you discuss with the right hemisphere to determine the best course of action.
                 """                    
         )
         
         self.right = Agent(model,
+            tools=[create_python_executor_tool()],
             system_prompt = 
                 """
                     You represent the right hemisphere brain of a reasoning agent. Your name is 'Righty'. 
+                    The create_python_executor_tool is available to execute any python code you generate 
+                    for searching the web or performing other analysis.  It has libraries such as pandas,
+                    scipy,duckdb availabe for your use.
                     Given a problem or objective you discuss with the left hemisphere to determine the best course of action.
                 """                    
         )
@@ -138,12 +145,14 @@ class Reasoner:
         
         if self.options.reasoning and sender!="@user":
             print(f"[{sender} -> Leader]: {message}\n")
+        else:
+            print(f"[{sender} -> Leader]")
             
         response = await self.default_agent.run(
             message,
             message_history=self.message_history,
             result_type=str,
-            model_settings={'temperature': 0.5},
+            model_settings={'temperature': 0.5,"num_ctx": 8192},
         )
         
         newmsgs = response.new_messages()
@@ -155,6 +164,7 @@ class Reasoner:
             print(f"[{sender} -> Leader]: {response.data}\n")
         else:
             print(f"[Leader]: {response.data}\n")
+            
         if re.search("@user", response.data, re.IGNORECASE):
             print("**************\nGOT USER QUESTION\n*****************")
             self.stop_queue = True
@@ -174,7 +184,8 @@ class Reasoner:
         
         if self.options.reasoning:
             print(f"[{sender} -> {hemisphere}]: {message}\n")
-        
+        else:
+            print(f"[{sender} -> {hemisphere}]\n")
  
         agent = getattr(self,"left",None)
         if agent is None:
@@ -184,13 +195,16 @@ class Reasoner:
             response = await agent.run(
                 message,
                 message_history=self.message_history,
-                model_settings={'temperature': temperature}
+                model_settings={'temperature': temperature,"num_ctx": 4096}
             )
             newmsgs = response.new_messages()
 
             self.message_history += newmsgs
             if self.options.reasoning:
                 print(f"[{hemisphere} -> Leader]: {message}\n")
+            else:
+                print(f"[{hemisphere} -> Leader]\n")
+                
             self.add_to_queue(response.data, "leader")
                 
         return False

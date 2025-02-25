@@ -1,0 +1,10 @@
+Bootstrap: docker
+From: python:3.12-alpine
+Stage: build
+
+%environment
+	export LISTEN_PORT=54321
+	export LC_ALL=C
+
+%post
+	pip install pandas duckdb scipy networkx

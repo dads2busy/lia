@@ -8,7 +8,10 @@ authors = [
 requires-python = ">=3.10"
 dependencies=[
     "typer==0.9.1",
-    "pydantic>2.0.0"
+    "pydantic>2.0.0",
+    "pydantic_ai",
+    "prompt_toolkit"
+
 ]
 [project.scripts]
 lia = "lia.cli:app"

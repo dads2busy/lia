@@ -1,9 +1,11 @@
 from dataclasses import dataclass
-from pydantic import BaseModel
+from pydantic import BaseModel,Field
 from typing import List, Optional
 from lia.agent import load_agent_tool
 from pydantic_ai.models.openai import OpenAIModel
 from pydantic_ai import Agent,RunContext
+import tempfile,os
+import subprocess
 
 default_model = OpenAIModel(model_name="llama3.3",base_url="http://localhost:11434/v1",api_key="none") 
 
@@ -22,42 +24,47 @@ class RegisteredAgent:
     agent: Agent
     messages: list
     
-# def create_agent(name:str,role:str,model:OpenAIModel):
-#     system_prompt = f"""
-#         Perform tasks and engage with team members to further user's objective.  Your name is {name}.
-#         Please provide a detailed, evidence-based response. Avoid using clichés, vague generalizations, or platitudes.
-#         Instead, focus on specific examples, concrete reasoning, and direct, nuanced language that clearly supports your answer.
-#     """
-#     # print(f"Create Agent : {name} Prompt: {system_prompt}")
-#     return Agent(
-#         name=name,
-#         model=model,
-#         system_prompt = system_prompt
-#     )
+class ExecuteScriptOutput(BaseModel):
+    output: str = Field(..., description="Standard output produced by the script execution")
 
-# def get_create_team_tool(model=default_model):
-#     def create_team(ctx: RunContext[str],team: list[TeamMember],retries=5) -> str:
-#         """
-#             Given a list of TeamMember objects, this tool will create expert team members described by the TeamMember objects.
-#             Once the team has been created, as a group they should self organize to discuss the best way to solve the user's objective.
-#         """
-#         print(f"Calling all experts....")
-#         if len(ctx.deps.team)>0:
-#             return "Team already exists. Work with your current team."
-#         else:  
-#             ctx.deps.team += team
-            
-#         for tm in ctx.deps.team:
-#             if tm.name not in ctx.deps.agents:
-#                 ctx.deps.agents[tm.name] = RegisteredAgent(agent=create_agent(tm.name,tm.role,model), messages=[])
+def create_python_executor_tool(container_path:str="/home/dmachi/lia/src/lia/tool_image/python_executor.sif"):
+    def execute_script_in_container(python_script: str) -> ExecuteScriptOutput:
+        """
+            Executes a provided Python script.
+        """
+        # Write the script to a temporary file
+        print("[execute_script_in_container] Executing python script")
+        with tempfile.NamedTemporaryFile(mode="w", suffix=".py", delete=False) as temp_file:
+            temp_file.write(python_script)
+            temp_script_path = temp_file.name
+
+        try:
+            # Build the command to run the script inside the container
+            command = [
+                "apptainer", "exec",
+                container_path,
+                "python",
+                temp_script_path
+            ]
+            print(f"Execute script {command}")
+            result = subprocess.run(command, capture_output=True, text=True)
+
+            if result.returncode == 0:
+                return ExecuteScriptOutput(output=result.stdout)
+            else:
+                # Raise an error with the stderr output for debugging if execution fails.
+                # raise RuntimeError(f"Error executing script: {result.stderr}")
+                print(f"Error executing script: {result.stderr}")
+        finally:
+            # Ensure that the temporary file is removed after execution
+            os.remove(temp_script_path)
         
-#         return "The team has been assembled." 
-
-#     return create_team
+            
+    return execute_script_in_container
    
 class ReasoningAgent(Agent):
     """
-    Returns an ATeam Agent
+    Returns a Reasoning Agent
     """
     def __init__(self, model=default_model,name:str="ReasoningAgent",tools=[],system_prompt=None, result_type=str,retries:int=1):
 
@@ -74,8 +81,9 @@ class ReasoningAgent(Agent):
                 Please provide a detailed, evidence-based response. Avoid using clichés, vague generalizations, or platitudes.
                 Instead, focus on specific examples, concrete reasoning, and direct, nuanced language that clearly supports your answer.
                 
-                When lefty or righty respond with questions from the user, express the question to the user and proceed teh question with "@user"
-                Ask the user for clarifications or additional context by proceeding the question with "@user".
+                You should ask the user for clarifications or additional context by proceeding the question with "@user" when needed by you, lefty, or righty.
+                
+                When you think the objective has been met, ask the user to see whether to continue or not.
         """  
 
 
@@ -84,7 +92,7 @@ class ReasoningAgent(Agent):
         else:
             system_prompt = base_prompt + system_prompt
         
-        team=[]
+        tools=[create_python_executor_tool()]
 
         super().__init__(model=model, name=name, system_prompt=system_prompt,
                          deps_type=None, result_type=result_type, tools=tools,retries=retries)
