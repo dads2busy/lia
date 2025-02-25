@@ -19,7 +19,7 @@ class Options(BaseModel):
     agent: Union[str, None] = None
     storage_folder: str = "./lia"
     model_name: str = "llama3.2"
-    model_base_url: str | None = "http://localhost:11434/v1"
+    model_base_url: str | None = "http://192.168.5.11:11434/v1"
     model_api_key: str = "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"
 
 

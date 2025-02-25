@@ -10,7 +10,7 @@ dependencies=[
     "typer==0.9.1",
     "pydantic>2.0.0",
     "pydantic_ai",
-    "pydantic_graph"
+    "prompt_toolkit"
 ]
 [project.scripts]
 lia = "lia.cli:app"
