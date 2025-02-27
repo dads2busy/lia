@@ -9,14 +9,11 @@ from pydantic_ai import capture_run_messages, UnexpectedModelBehavior, Agent,Age
 from lia.agent import load_agent, list_agents
 from dataclasses import dataclass
 from lia.agent.reasoning_agent.reasoning_agent import create_python_executor_tool
-from lia.agent.message_routing_agent.message_routing_agent import AgentMessage
+from lia.agent.message_routing_agent.message_routing_agent import AgentMessage,RoutingDeps
 from lia.agent.ateam_agent.ateam_agent import TeamMember
 import re
 
-@dataclass
-class RoutingDeps:
-    team: list[TeamMember]
-  
+
 
 class Reasoner:
     prompt = "(Reasoner) > "
@@ -270,7 +267,9 @@ class Reasoner:
     async def route_response(self,message,source:str):
         print(f"Route Response from {source}: \n{message}")
         try:
-            response = await self.message_routing_agent.run(message,deps=RoutingDeps(team=self.getTeam()), result_type=list[AgentMessage])
+            deps = RoutingDeps(team=self.getTeam())
+            print(f"Routing Deps: {deps}")
+            response = await self.message_routing_agent.run(message,deps=deps, result_type=list[AgentMessage])
             md = {}
             if self.options.debug:
                 print("Message Routing Agent Response: ")

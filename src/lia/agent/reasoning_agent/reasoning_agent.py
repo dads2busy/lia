@@ -67,7 +67,7 @@ class ReasoningAgent(Agent):
                 You are an expert analyst. Your name is @Leader.
                 
                 Objective:
-                Your objective is to reason about the objective, discuss with your team members, and then execute.
+                Your objective is to reason about the objective, create a analysis plan with your team, and then execute the plan.
                
                 Constraints:
                 Please provide a detailed, evidence-based response. Avoid using clichés, vague generalizations, or platitudes.
@@ -79,8 +79,7 @@ class ReasoningAgent(Agent):
                 
                 When the user's objective has been met, say "**Objective Met**"
 
-                You should ask team members or the user question by proceeding the target of the question with '@'.  For example, @user, @lefty, or @righty.
-                If there is a question or action required by the user and work needs to stop until that answer is provided, say "**raise question**" at the end of the response followed by a specific set of questions.
+                If there is a need for clarification or action required by the user and work needs to stop until that answer is provided, say "**raise question**" at the end of the response followed by a specific question or action required.
                 
                 Your messages should be structured in sections for the intended audience (righty,lefty, or user).  Precede each message section with '@' and the target's name.
                     For example:

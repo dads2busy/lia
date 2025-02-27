@@ -9,6 +9,11 @@ from lia.agent.ateam_agent.ateam_agent import TeamMember
 
 default_model = OpenAIModel(model_name="llama3.3",base_url="http://localhost:11434/v1",api_key="none") 
 
+@dataclass
+class RoutingDeps:
+    team: list[TeamMember]
+  
+
 class AgentMessage(BaseModel):
     """
     This object contains a response from an agent.
@@ -22,7 +27,7 @@ class MessageRoutingAgent(Agent):
     """
     Returns an ATeam Agent
     """
-    def __init__(self, model=default_model,name:str="MessageRoutingAgent",deps_type=list[TeamMember],tools=[],system_prompt=None, result_type=list[AgentMessage],retries:int=15):
+    def __init__(self, model=default_model,name:str="MessageRoutingAgent",deps_type=RoutingDeps,tools=[],system_prompt=None, result_type=list[AgentMessage],retries:int=15):
 
         system_prompt=f"""
             You are a message routing agent. 
@@ -45,15 +50,15 @@ class MessageRoutingAgent(Agent):
 
 
         super().__init__(model=model, name=name, system_prompt=system_prompt,
-                         deps_type=None, result_type=result_type, tools=tools,retries=retries)
+                         deps_type=deps_type, result_type=result_type, tools=tools,retries=retries)
     
         @self.system_prompt(dynamic=True)
-        async def add_team_to_system_prompt(ctx: RunContext[list[TeamMember]]) -> str:
+        async def add_team_to_system_prompt(ctx: RunContext[RoutingDeps]) -> str:
             # For instance, concatenate team details into the prompt.
-            print("Adding team to system prompt")
-            if len(ctx.deps)<0:
+            # print("Adding team to system prompt")
+            if len(ctx.deps.team)<0:
                 return "There are currently no team members.  Only route between user and leader."
             else:
-                team_info = ", ".join(member.name for member in ctx.deps)
+                team_info = ", ".join(member.name for member in ctx.deps.team)
                 return f"Team members: {team_info}"
         
