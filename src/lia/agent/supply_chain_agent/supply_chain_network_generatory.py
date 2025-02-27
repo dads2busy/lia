@@ -394,7 +394,7 @@ async def main():
     print(f"Analyzing {product}")
     # print(f"Initial State: {state}")
     graph = Graph(nodes=(GenerateSupplyChainNetwork,GetProductDescription,GetProductSystems,DedupeProductSystems,GetComponents,DedupeComponents,ClassifyComponents))
-    graph.mermaid_save("SupplyChainMermaid.png")
+    # graph.mermaid_save("SupplyChainMermaid.png")
     # print(f"Graph: {graph}")
     result= await graph.run(GenerateSupplyChainNetwork(),state=state)
     print("Graph Run Complete.")

@@ -3,34 +3,26 @@ from pydantic import BaseModel,Field
 from typing import List, Optional
 from lia.agent import load_agent_tool
 from pydantic_ai.models.openai import OpenAIModel
-from pydantic_ai import Agent,RunContext
+from pydantic_ai import Agent,RunContext,AgentRunError
 import tempfile,os
 import subprocess
 
 default_model = OpenAIModel(model_name="llama3.3",base_url="http://localhost:11434/v1",api_key="none") 
 
-@dataclass
-class TeamMember():
-    """ 
-        Describes a team member
-        name - The name of the team member
-        role - Describes the exptertise of the team member
-    """
-    name: str 
-    role: str
-    
-@dataclass
-class RegisteredAgent:
-    agent: Agent
-    messages: list
     
 class ExecuteScriptOutput(BaseModel):
     output: str = Field(..., description="Standard output produced by the script execution")
-
-def create_python_executor_tool(container_path:str="/home/dmachi/lia/src/lia/tool_image/python_executor.sif"):
+    
+def create_python_executor_tool(container_path:str="/sfs/gpfs/tardis/home/dm8qs/lia/src/lia/tool_image/python_executor.sif", storage_folder:str|None=None):
     def execute_script_in_container(python_script: str) -> ExecuteScriptOutput:
         """
-            Executes a provided Python script.
+            Executes a provided Python3 script.
+            
+            The execute_script_in_container is available to execute any python3 code you generate 
+            for searching the web or performing other analysis.  It has libraries such as pandas,
+            scipy,duckdb,requests,and matplotlib availabe for your use.
+            
+            Your code can check to see if a /workdir folder exists.  If /workdir exists, file output can be stored there.
         """
         # Write the script to a temporary file
         print("[execute_script_in_container] Executing python script")
@@ -40,26 +32,28 @@ def create_python_executor_tool(container_path:str="/home/dmachi/lia/src/lia/too
 
         try:
             # Build the command to run the script inside the container
-            command = [
-                "apptainer", "exec",
+            command = ["apptainer", "exec"]
+            if storage_folder:
+                command += ["--bind", f"{storage_folder}:/workdir", "--cwd","/workdir"]
+    
+            command += [   
                 container_path,
                 "python",
                 temp_script_path
             ]
-            print(f"Execute script {command}")
+            
             result = subprocess.run(command, capture_output=True, text=True)
 
             if result.returncode == 0:
                 return ExecuteScriptOutput(output=result.stdout)
             else:
                 # Raise an error with the stderr output for debugging if execution fails.
-                # raise RuntimeError(f"Error executing script: {result.stderr}")
-                print(f"Error executing script: {result.stderr}")
+                raise AgentRunError(f"Error executing script: {result.stderr}")
+                # print(f"Error executing script: {result.stderr}")
         finally:
             # Ensure that the temporary file is removed after execution
             os.remove(temp_script_path)
         
-            
     return execute_script_in_container
    
 class ReasoningAgent(Agent):
@@ -70,20 +64,44 @@ class ReasoningAgent(Agent):
 
         base_prompt=f"""
                 Role:
-                You are an expert analyst. 
+                You are an expert analyst. Your name is @Leader.
                 
                 Objective:
-                Your objective is to reason about the objective and then execute.
-                You will communicate with the left and right half of your brain (lefty and righty) to analyze the objective, request clarification from the user, develop and refine an execution plan,
-                and then finally to execute the plan. 
-
+                Your objective is to reason about the objective, discuss with your team members, and then execute.
+               
                 Constraints:
                 Please provide a detailed, evidence-based response. Avoid using clichés, vague generalizations, or platitudes.
                 Instead, focus on specific examples, concrete reasoning, and direct, nuanced language that clearly supports your answer.
                 
-                You should ask the user for clarifications or additional context by proceeding the question with "@user" when needed by you, lefty, or righty.
+                Tasks:
+                1. Determine objective and generate initial tasks for @lefty and @righty.
+                2. Examine responses from @lefty and @righty to identify mistakes and improvements.  Continue the discussion towards achieving the user's objective.
+                3. When the user's objective has been met, say "**Objective Met**"
                 
-                When you think the objective has been met, ask the user to see whether to continue or not.
+                You should ask team members or the user question by proceeding the target of the question with '@'.  For example, @user, @lefty, or @righty.
+                If there is a question or action required by the user and work needs to stop until that answer is provided, say "**raise question**" at the end of the response followed by a specific set of questions.
+                
+                Your messages should be structured in sections for the intended audience (righty,lefty, or user).  Precede each message section with '@' and the target's name.
+                    For example:
+                    
+                        @righty:
+                            Please collected the details about product x.
+                        @lefty:
+                            Here is the results to task 2: 'foobar'.
+                        @user:
+                            I have righty working on collecting the details of product x.  Lefty has the results to task2: 'foobar'
+                            
+                    Second Example:
+                        @righty:
+                            Please collected the details about product x.
+                        @lefty:
+                            I need more detail about the type of product y to complete my analysis.
+                        @user:
+                            I have Righty working on collecting the details of product x.  Lefty needs more details about product y.
+                    
+                    **raise question**
+                    Can you please provide more details about product y?        
+                
         """  
 
 
@@ -92,7 +110,7 @@ class ReasoningAgent(Agent):
         else:
             system_prompt = base_prompt + system_prompt
         
-        tools=[create_python_executor_tool()]
+        # tools=[create_python_executor_tool()]
 
         super().__init__(model=model, name=name, system_prompt=system_prompt,
                          deps_type=None, result_type=result_type, tools=tools,retries=retries)

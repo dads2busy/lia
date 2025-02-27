@@ -5,10 +5,11 @@ import inspect
 from prompt_toolkit import PromptSession
 from lia.analysis_context import AnalysisContext
 from pydantic_ai.models.openai import OpenAIModel
-from pydantic_ai import capture_run_messages, UnexpectedModelBehavior, Agent
+from pydantic_ai import capture_run_messages, UnexpectedModelBehavior, Agent,AgentRunError
 from lia.agent import load_agent, list_agents
 from dataclasses import dataclass
 from lia.agent.reasoning_agent.reasoning_agent import create_python_executor_tool
+from lia.agent.message_routing_agent.message_routing_agent import AgentMessage
 import re
 
 class Reasoner:
@@ -17,84 +18,96 @@ class Reasoner:
     def __init__(self, file: str | None, options):
         self.file = file
         self.options = options
-        self.stop_queue = False
-        self.pause_message = []
-        self.team = []
-        self.agents = {}
-        self.queue = asyncio.Queue()
+        self.stop_reasoning=False
+        self.stopped_message = None
+        self.isFirstMessage=True
         self.message_history = []
+        self.agent_message_history = {"lefty": [], "righty":[]}
+        
+        print(f"Model:\n\t{self.options.model_name}\n\t{self.options.llm_api_url}\n\t{self.options.llm_api_key}")
         self.default_model = OpenAIModel(
             model_name=self.options.model_name,
-            base_url=self.options.model_base_url,
-            api_key=self.options.model_api_key
+            base_url=self.options.llm_api_url,
+            api_key=self.options.llm_api_key
         )
+        
         self.default_agent = load_agent('reasoning_agent', model=self.default_model)
         if self.default_agent.name is not None and options.agent is not None:
             self.prompt = f"({self.default_agent.name}) > "
   
+        self.message_routing_agent = load_agent('message_routing_agent', model=self.default_model)
+          
         self.create_hemispheres(self.default_model)
 
         if options.debug:
             pprint.pp(self.default_agent, indent=2)
-            pprint.pp(self.left, indent=2)
-            pprint.pp(self.right, indent=2)
+            pprint.pp(self.lefty, indent=2)
+            pprint.pp(self.righty, indent=2)
     
     def create_hemispheres(self,model):
-        self.left = Agent(model,
-            tools=[create_python_executor_tool()],
+        self.lefty = Agent(model,name="Lefty",
+            tools=[create_python_executor_tool(container_path=self.options.python_tool_container,storage_folder=self.options.storage_folder)],
             system_prompt = 
                 """
                     You represent the left hemisphere brain of a reasoning agent. Your name is "Lefty".
-                    The create_python_executor_tool is available to execute any python code you generate 
-                    for searching the web or performing other analysis.  It has libraries such as pandas,
-                    scipy,duckdb availabe for your use.
-                    Given a problem or objective you discuss with the right hemisphere to determine the best course of action.
+                    Given a problem or objective you discuss with Righty and Leader to determine the best course of action. 
+                    If you believe you are done, the object has been met, or you don't have any additional insight,  say "**no action**".  Never address questions directly to user.
+                    Your messages should be structured in section for the intended audience (righty or leader).  Precede each message section with '@' and the target's name.
+                    For example:
+                    
+                        @righty:
+                            Please collected the details about product x.
+                        @leader:
+                            Here is the results to my task..
+                    
                 """                    
         )
         
-        self.right = Agent(model,
-            tools=[create_python_executor_tool()],
+        self.righty = Agent(model,name="Righty",
+            tools=[create_python_executor_tool(container_path=self.options.python_tool_container,storage_folder=self.options.storage_folder)],
             system_prompt = 
                 """
                     You represent the right hemisphere brain of a reasoning agent. Your name is 'Righty'. 
-                    The create_python_executor_tool is available to execute any python code you generate 
-                    for searching the web or performing other analysis.  It has libraries such as pandas,
-                    scipy,duckdb availabe for your use.
-                    Given a problem or objective you discuss with the left hemisphere to determine the best course of action.
+                    Given a problem or objective you discuss with Lefty and Leader to determine the best course of action. Never address questions directly to user.
+                    If you believe you are done, the object has been met, or you don't have any additional insight, say "**no action**"
+                    Your messages should be structured in section for the intended audience (lefty or leader).  Precede each message section with '@' and the target's name.
+                    For example:
+                    
+                        @lefty:
+                            Please collected the details about product x.
+                        @leader:
+                            Here is the results to my task..
                 """                    
         )
         
-    
     async def run_cli(self):
         session = PromptSession(self.prompt)
         # Start background task to process the message queue.
-        self.queue_task = asyncio.create_task(self.process_message_queue())
         print("Starting interactive chat with Reasoner.\nType '/help' for commands or '/exit' to quit.\n")
-        try:
-            while True:
-                try:
-                    # prompt_async lets you use prompt_toolkit in an async loop.
-                    line = await session.prompt_async(self.prompt)
-                except (EOFError, KeyboardInterrupt):
-                    # When ctrl-d (or ctrl-c) is pressed, treat the input as the EOF command.
-                    line = "EOF"
-                line = line.strip()
-                if not line:
-                    continue
-                # If the line is exactly "EOF", handle it as a command.
-                if line == "EOF":
-                    command_line = "EOF"
-                elif line.startswith('/'):
-                    command_line = line[1:]
-                else:
-                    # Otherwise, prepend the "send" command.
-                    command_line = "send " + line
-                # Process the command.
-                should_exit = await self.handle_command(command_line)
-                if should_exit:
-                    break
-        finally:
-            self.queue_task.cancel()
+        
+        while True:
+            try:
+                # prompt_async lets you use prompt_toolkit in an async loop.
+                line = await session.prompt_async(self.prompt)
+            except (EOFError, KeyboardInterrupt):
+                # When ctrl-d (or ctrl-c) is pressed, treat the input as the EOF command.
+                line = "EOF"
+            line = line.strip()
+            if not line:
+                continue
+            # If the line is exactly "EOF", handle it as a command.
+            if line == "EOF":
+                command_line = "EOF"
+            elif line.startswith('/'):
+                command_line = line[1:]
+            else:
+                # Otherwise, prepend the "send" command.
+                command_line = "send " + line
+            # Process the command.
+            should_exit = await self.handle_command(command_line)
+            if should_exit:
+                break
+
     
     async def handle_command(self, line: str) -> bool:
         # Split the line into command and argument.
@@ -115,9 +128,8 @@ class Reasoner:
     # Command methods:
     async def do_send(self, user_input):
         """Send a message to the main agent."""
-        self.stop_queue=False
-        self.add_to_queue(user_input, "@user")
-        
+        await self.resume_reasoning()
+        asyncio.create_task(self.send_to_agent(user_input,"leader","user"))
         return False
     
     def do_help(self, command):
@@ -140,100 +152,129 @@ class Reasoner:
         """Exit the chat."""
         return self.do_EOF(inp)
 
+    async def send_to_agent(self, message: str, target:str, sender: str):
+        target = target.lower()
+        if target=="leader":
+            agent=self.default_agent
+            message_history = self.message_history
+            temperature = 0.5
+        elif target=="lefty":
+            agent=self.lefty
+            message_history = self.agent_message_history["lefty"]
+            temperature = 0.1
+        elif target=="righty":
+            agent=self.righty
+            message_history = self.agent_message_history["righty"]
+            temperature = 0.9
 
-    async def send_to_leader(self, message: str, sender: str):
-        
-        if self.options.reasoning and sender!="@user":
-            print(f"[{sender} -> Leader]: {message}\n")
         else:
-            print(f"[{sender} -> Leader]")
+            print("Invalid agent target: {target}. Dropping Message")
+            return
             
-        response = await self.default_agent.run(
-            message,
-            message_history=self.message_history,
-            result_type=str,
-            model_settings={'temperature': 0.5,"num_ctx": 8192},
-        )
+        message_preamble = f"[From {sender}]:\n"
+        msg = f"{message_preamble}: {message}"
         
-        newmsgs = response.new_messages()
-        if self.options.debug:
-            pprint.pp(newmsgs,indent=3)
-        self.message_history += newmsgs
-
-        if self.options.reasoning and sender!="@user":
-            print(f"[{sender} -> Leader]: {response.data}\n")
+        if self.options.reasoning and sender!="user":
+            print(f"[{sender} -> {target}]: {message}\n")
         else:
-            print(f"[Leader]: {response.data}\n")
-            
-        if re.search("@user", response.data, re.IGNORECASE):
-            print("**************\nGOT USER QUESTION\n*****************")
-            self.stop_queue = True
-            self.pause_message.append(response.data)
-        else:
-            if len(self.pause_message)>0:
-                self.add_to_queue(' '.join(self.pause_message + [response.data]), "reasoner")
-                self.pause_message=[]
-            else:
-                print("Add Leader response to queue for reasoner")
-                self.add_to_queue(response.data,"reasoner")
-
-        return False
-    
-    async def send_to_reasoner(self, message: str, sender: str, hemisphere:str, temperature:float=0.5):
-        # print("Send to Agents()")
+            print(f"[{sender} -> {target}]")
         
-        if self.options.reasoning:
-            print(f"[{sender} -> {hemisphere}]: {message}\n")
-        else:
-            print(f"[{sender} -> {hemisphere}]\n")
- 
-        agent = getattr(self,"left",None)
-        if agent is None:
-            raise Exception("Unexpected missing brain hemisphere!")
-        
-        if sender is None or agent.name != sender:
+        try:
             response = await agent.run(
-                message,
-                message_history=self.message_history,
-                model_settings={'temperature': temperature,"num_ctx": 4096}
+                msg,
+                message_history=message_history,
+                result_type=str,
+                model_settings={'temperature': temperature,"num_ctx": 131072},
             )
-            newmsgs = response.new_messages()
-
-            self.message_history += newmsgs
-            if self.options.reasoning:
-                print(f"[{hemisphere} -> Leader]: {message}\n")
-            else:
-                print(f"[{hemisphere} -> Leader]\n")
-                
-            self.add_to_queue(response.data, "leader")
-                
-        return False
-
             
-    async def send_to_agents(self, message: str, sender: str):
-        asyncio.create_task(self.send_to_reasoner(message, sender,"left",0.1))
-        asyncio.create_task(self.send_to_reasoner(message, sender,"right",0.9))
-        
-        return False
-    
-    async def process_message_queue(self):
-        while True:
-            if not self.stop_queue:
-                try:
-                    qitem = await self.queue.get()
-                    if self.options.debug:
-                        print(f"qitem: {qitem}")
-                        
-                    if qitem['sender'] == "@user":
-                        await self.send_to_leader(qitem['message'], qitem['sender'])
-                    else:
-                        await self.send_to_agents(qitem['message'], qitem['sender'])
-                        
-                    self.queue.task_done()
-                except Exception as err:
-                    print(f"Error processing queue: {err}")
+            newmsgs = response.new_messages()
+            if self.options.debug:
+                print(f"New Messages from {agent.name}")
+                pprint.pp(newmsgs,indent=3)
+
+            if target=="leader":
+                self.message_history += newmsgs
             else:
-                await asyncio.sleep(1)
-    
-    def add_to_queue(self, msg, sender):
-        self.queue.put_nowait({"sender": sender, "message": msg})
+                self.agent_message_history[target] += newmsgs
+
+            for kw in ["**objective met**","**raise question**"]:
+                if kw in response.data:
+                    self.stop_reasoning=True            
+
+            if "**no action" not in response.data:
+                asyncio.create_task(self.route_response(response.data,target))
+                
+        except AgentRunError as err:
+            if self.options.debug:
+                print(f"Got AgentRunError frin {agent.name}: \n{err}")
+            if self.options.reasoning: 
+                print(f"Got AgentRunError from {agent.name}")        
+        
+            if target=="leader":
+                self.message_history.append(err)
+            else:
+                self.agent_message_history[target].append(err)
+                
+        except Exception as err:
+            print(f"Error in send_to_agent response: {err}")
+            
+    async def deliver_messages_from_dict(self,message_dict):
+        md = message_dict["messages"]
+        source = message_dict["source"]
+        for target in md:
+            # print("\tTarget: {target}")
+            msg = []
+            if target in ["all","team"]:
+                continue
+            
+            if 'all' in md:
+                msg += md["all"]
+                
+            if target=="user" and "user" in md:
+                msg += md["user"]
+            
+            if target in ["lefty","righty","leader"] and target in md:
+                if "team" in md and target!=source:
+                    msg += md["team"]
+                if target != source:
+                    msg += md[target]
+
+            jmsg = ' '.join(msg)
+            
+            if self.stop_reasoning and target=="user":
+                print(f"[{source}->{target}]:{jmsg} ")
+            else:
+                if target != "user":
+                    wait = self.stop_reasoning
+                    while wait:
+                        await asyncio.sleep(2)
+                        wait = self.stop_reasoning
+                    await self.send_to_agent(' '.join(msg),target,source)
+                    
+    async def resume_reasoning(self):
+        self.stop_reasoning=False
+
+                        
+    async def route_response(self,message,source:str):
+        print(f"Route Response from {source}: \n{message}")
+        try:
+            response = await self.message_routing_agent.run(message,result_type=list[AgentMessage])
+            md = {}
+            if self.options.debug:
+                print("Message Routing Agent Response: ")
+                pprint.pp(response.data)
+                
+            for msg in response.data:
+                target = msg.target
+                if msg.target not in md:
+                    md[target]=[]
+                
+                md[target].append(msg.message) 
+            
+            await self.deliver_messages_from_dict({"messages": md, "source": source})
+                            
+        except UnexpectedModelBehavior as err:
+           print("Message router had unexpected behavior: {err}")
+        
+                
+

@@ -1,6 +1,7 @@
 README.md
 pyproject.toml
 src/lia/__init__.py
+src/lia/acmd.py
 src/lia/analysis_context.py
 src/lia/ateam.py
 src/lia/cli.py
@@ -13,6 +14,8 @@ src/lia.egg-info/entry_points.txt
 src/lia.egg-info/requires.txt
 src/lia.egg-info/top_level.txt
 src/lia/agent/__init__.py
+src/lia/agent/ateam_agent/__init__.py
+src/lia/agent/ateam_agent/ateam_agent.py
 src/lia/agent/component_analysis_agent/__init__.py
 src/lia/agent/component_analysis_agent/component_analysis_agent.py
 src/lia/agent/context_manager_agent/__init__.py

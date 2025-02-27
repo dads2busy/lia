@@ -29,8 +29,8 @@ class ATeam:
         self.message_history = []
         self.default_model = OpenAIModel(
             model_name=self.options.model_name,
-            base_url=self.options.model_base_url,
-            api_key=self.options.model_api_key
+            base_url=self.options.llm_api_url,
+            api_key=self.options.llm_api_key
         )
         
         if options.agent is not None:

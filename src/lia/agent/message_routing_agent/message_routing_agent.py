@@ -21,26 +21,24 @@ class MessageRoutingAgent(Agent):
     """
     Returns an ATeam Agent
     """
-    def __init__(self, model=default_model,name:str="MessageRoutingAgent",tools=[],system_prompt=None, result_type=list[AgentMessage],retries:int=5):
+    def __init__(self, model=default_model,name:str="MessageRoutingAgent",tools=[],system_prompt=None, result_type=list[AgentMessage],retries:int=15):
 
         system_prompt=f"""
-        
             You are a message routing agent. 
             You will be provided text of a generated message. 
             For each of the available targets, extract:
-                - the target (addressee)
-                - the portion of the message meant for the target or '' if there is no message for the target
-            
-            The name should always be the canonical name of the target, not a shortened form ('Mr. Larry Bird' should not be shortened to 'Mr. Bird')
-            
+                - the target (addressee) with the '@' stripped off.
+                - the portion of the message meant for the target or '' if there is no message for the target.  Do not change the text any more than necessary. 
+                
+            @user should never be used in a message to @team or to @all.
+ 
+            Team Members are lefty and righty
+    
             Available targets:
-                @team - Send to all team members
                 @user - Send to the user
-                @all - Send to the user and team members
-                team member name  - send to specific team member
+                @[team member name]  - send to specific team member (e.g, @lefty, @righty)
              
            Generate a complete list of messages containing all available targets. Output should be JSON
-
         """
 
         tools = []
