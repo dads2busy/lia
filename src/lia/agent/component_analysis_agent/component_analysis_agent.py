@@ -5,12 +5,8 @@ from typing import List, Optional
 from lia.agent import load_agent_tool
 from pydantic_ai.models.openai import OpenAIModel
 
-model_name = "gpt-4o"
-api_key = "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"
-default_model = OpenAIModel(model_name=model_name,api_key=api_key)
-
 # default_model = OpenAIModel(model_name="llama3.2",base_url="http://localhost:11434/v1",api_key="none")                
-# default_model = OpenAIModel(model_name="llama3.3",base_url="http://localhost:11434/v1",api_key="none") 
+default_model = OpenAIModel(model_name="llama3.3",base_url="http://localhost:11434/v1",api_key="none") 
 
 class ComponentAnalysisAgent(Agent):
     """

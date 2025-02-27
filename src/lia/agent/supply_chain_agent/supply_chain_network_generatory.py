@@ -142,8 +142,15 @@ class DedupeProductSystems(BaseNode[GraphState]):
         subsystems = []
         try: 
             systems_list =  ctx.state.tree._raw_subcomponents
+            print(f"systems list: {systems_list}")
             for i in range(1):
-                r = await agent.run(f"Please deduplicate the '{ctx.state.product.name}' systems:\n{'\n'.join(systems_list)}\nReturn the deduplicated list.",model_settings={'temperature': .5})
+                msg = f"""
+                    Please deduplicate the '{ctx.state.product.name}' systems:
+                     {','.join(systems_list)} 
+                     
+                     Return the deduplicated list."
+                """ 
+                r = await agent.run(msg,model_settings={'temperature': .5})
 
                 if isinstance(r.data,list):
                     systems_list = (r.data)
@@ -180,7 +187,12 @@ class ClassifyComponents(BaseNode[GraphState]):
             system_prompt += f"You will be presented the subcomponents of the {ctx.state.current.name} subsystem.\n"
         # print(f"dedupe components system promp: {system_prompt}")
     
-        prompt = f"Please categorize the list subcomponents.  The list: :{'\n'.join(ctx.state.current._raw_subcomponents)} \n Return the RawCompOutput object."
+        prompt = f"""
+            Please categorize the list subcomponents.  The list:
+                {','.join(ctx.state.current._raw_subcomponents)} 
+                
+                Return the RawCompOutput object.
+        """
         
         class RawCompOutput(BaseModel):
             raw_materials: list[str]
@@ -229,18 +241,18 @@ class ClassifyComponents(BaseNode[GraphState]):
 @dataclass
 class DedupeComponents(BaseNode[GraphState]):
     async def run(self, ctx: GraphRunContext) -> 'ClassifyComponents':
-        system_prompt = ' '.join([
-            f"You are an expert in the {ctx.state.product.name} product.\n",
-            "Your response should deduplicate the provided set of components relative to their parent without any duplications or overlapping function.\n"
-            "Respond with JSON.\n"
-        ])
+        system_prompt = f"""
+            You are an expert in the {ctx.state.product.name} product.
+            Your response should deduplicate the provided set of components relative to their parent without any duplications or overlapping function.
+            Respond with JSON.
+        """
 
         if ctx.state.current.type != "system":
             system_prompt += f"You will be presented with subcomponents of a {ctx.state.current.name}. component.\n"
         else:
             system_prompt += f"You will be presented the subcomponents of the {ctx.state.current.name} subsystem.\n"
     
-        prompt = f"Please deduplicate the following component list:{'\n'.join(ctx.state.current._raw_subcomponents)} \n Return the deduplicated list."
+        prompt = f"Please deduplicate the following component list:{','.join(ctx.state.current._raw_subcomponents)} \n Return the deduplicated list."
         
         agent = ComponentAnalysisAgent(result_type=list[str],system_prompt=system_prompt,retries=5)
         try: 
@@ -388,7 +400,7 @@ def serialize_component_tree(root):
         
 async def main():
     product = Product(
-        name='#2 lead pencil'
+        name='Apple M1 Microprocessor'
     )
     state = GraphState(product=product,tree=Component(name=product.name))
     print(f"Analyzing {product}")
