@@ -21,7 +21,7 @@ class Options(BaseModel):
     model_name: str = "llama3.3"
     llm_api_url: str | None
     llm_api_key: str = ""
-    python_tool_container: str | None
+    python_tool_container: str | None = None
 
 @app.command()
 def reasoner(
@@ -61,7 +61,8 @@ def ateam(
     model:  Annotated[str, typer.Option("--model", "-m", help="Default Base Model Name")] = "llama3.3",
     llm_api_url: Annotated[str,None, typer.Option("--llm-api-url", "-u", help="")] = "http://localhost:11434/v1",
     llm_api_key: Annotated[str, typer.Option("--llm-api-key", "-k", help="")] = "None",
-    storage_folder: Annotated[str, typer.Option("--storage", "-s", help="Path to where files can be written and read")] = "./lia"
+    python_tool_container:  Annotated[str, typer.Option("--tool-container", "-t", help="Path to singularity image for tools")] = "/project/biocomplexity/singularity_images/python_tool_container.sif",
+    storage_folder: Annotated[str, typer.Option("--storage", "-s", help="Path to where files can be written and read")] = "./lia_work_dir"
 ):
     """
     Start the interactive chat with ATeam.
@@ -90,12 +91,13 @@ def lia(
     model:  Annotated[str, typer.Option("--model", "-m", help="Default Base Model Name")] = "llama3.3",
     llm_api_url: Annotated[str,None, typer.Option("--llm-api-url", "-u", help="")] = "http://localhost:11434/v1",
     llm_api_key: Annotated[str, typer.Option("--llm-api-key", "-k", help="")] = "None",
-    storage_folder: Annotated[str, typer.Option("--storage", "-s", help="Path to where files can be written and read")] = "./lia"
+    python_tool_container:  Annotated[str, typer.Option("--tool-container", "-t", help="Path to singularity image for tools")] = "/project/biocomplexity/singularity_images/python_tool_container.sif",
+    storage_folder: Annotated[str, typer.Option("--storage", "-s", help="Path to where files can be written and read")] = "./lia_work_dir"
 ):
     """
     Start the interactive chat with Lia.
     """
-    options = Options(debug=debug, agent=agent, storage_folder=storage_folder,reasoning=reasoning,model=model,llm_api_url=llm_api_url,llm_api_key=llm_api_key)
+    options = Options(debug=debug, agent=agent, storage_folder=storage_folder,model=model,llm_api_url=llm_api_url,llm_api_key=llm_api_key)
     try:
         os.makedirs(storage_folder, exist_ok=True)
     except Exception as err:
