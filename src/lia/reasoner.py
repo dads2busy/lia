@@ -202,7 +202,7 @@ class Reasoner:
                 self.agent_message_history[target] += newmsgs
 
             for kw in ["**objective met**","**raise question**"]:
-                if kw in response.data.lower():
+                if kw in response.data.lower() and sender == "leader":
                     self.stop_reasoning=True            
 
             if "**no action**" not in response.data.lower():
@@ -213,11 +213,13 @@ class Reasoner:
                 print(f"Got AgentRunError frin {agent.name}: \n{err}")
             if self.options.reasoning: 
                 print(f"Got AgentRunError from {agent.name}")        
-        
-            if target=="leader":
-                self.message_history.append(err)
-            else:
-                self.agent_message_history[target].append(err)
+
+            # need to see if returning an error, typically from a tool like the python executor
+            # is getting included into the message history (so it can correct).        
+            # if target=="leader":
+            #     self.message_history.append(err)
+            # else:
+            #     self.agent_message_history[target].append(err)
                 
         except Exception as err:
             print(f"Error in send_to_agent response: {err}")

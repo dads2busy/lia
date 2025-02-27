@@ -194,10 +194,6 @@ class ATeam:
             if self.options.reasoning: 
                 print(f"Got AgentRunError from {agent.name}")        
         
-            if target=="leader":
-                self.message_history.append(err)
-            else:
-                self.agents[target].messages.append(err)
                 
         except Exception as err:
             print(f"Error in send_to_agent response: {err}")
