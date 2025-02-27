@@ -16,7 +16,12 @@ class TeamMember():
     """
     name: str 
     role: str
-    
+
+@dataclass
+class ATeamDeps:
+    team: list
+    agents: dict
+
 @dataclass
 class RegisteredAgent:
     agent: Agent
@@ -28,10 +33,11 @@ def create_agent(name:str,role:str,model:OpenAIModel):
         Please provide a detailed, evidence-based response. Avoid using clichés, vague generalizations, or platitudes.
         Instead, focus on specific examples, concrete reasoning, and direct, nuanced language that clearly supports your answer.
     """
-    # print(f"Create Agent : {name} Prompt: {system_prompt}")
+    print(f"Create Agent : {name} Prompt: {system_prompt}")
     return Agent(
         name=name,
         model=model,
+        deps_type=ATeamDeps,
         system_prompt = system_prompt
     )
 
@@ -42,6 +48,8 @@ def get_create_team_tool(model=default_model):
             Once the team has been created, as a group they should self organize to discuss the best way to solve the user's objective.
         """
         print(f"Calling all experts....")
+        print(f"Team Call: {team}")
+        
         if len(ctx.deps.team)>0:
             return "Team already exists. Work with your current team."
         else:  
@@ -59,43 +67,69 @@ class ATeamAgent(Agent):
     """
     Returns an ATeam Agent
     """
-    def __init__(self, model=default_model,name:str="ATeamAgent",tools=[],system_prompt=None, result_type=str,retries:int=1):
+    def __init__(self, model=default_model,name:str="ATeamAgent",tools=[],deps_type=ATeamDeps,result_type=str,retries:int=1):
 
-        base_prompt=f"""
+        system_prompt=f"""
                 Role:
-                You are an expert analyst. 
+                You are an expert analyst. Your name is Leader.
                 You lead a dynamic team of experts.  
-                
-                Objective:
-                Your objective is to generate the team of experts and then lead the discussion amongst the team and the user.
-                The team's job is to analyze the objective, request clarification from the user, develop and refine an execution plan,
-                and then finally to execute the plan. 
+        """     
 
-                Constraints:
-                Please provide a detailed, evidence-based response. Avoid using clichés, vague generalizations, or platitudes.
-                Instead, focus on specific examples, concrete reasoning, and direct, nuanced language that clearly supports your answer.
-                
-                Tasks:
-                1. Obtain objective from the user.
-                2. Generate a list of 1-2 team members with diverse areas of expertise related to the user's objective.
-                3. Describe the objective to the team and the initial tasks to team members to begin the discussion.
-                4. Once the objectives have been met, tell the team to stop and present the output to the user.
-                
-                Once the discussions have begun.  It is your job to route messages between team members and the user as needed.  
-
-        """  
-
-
-        if system_prompt is None:
-            system_prompt = base_prompt
-        else:
-            system_prompt = base_prompt + system_prompt
-        
         create_team = get_create_team_tool(model=model)
         
         tools = [create_team]
 
         super().__init__(model=model, name=name, system_prompt=system_prompt,
-                         deps_type=None, result_type=result_type, tools=tools,retries=retries)
+                         deps_type=deps_type, result_type=result_type, tools=tools,retries=retries)
+        
+        @self.system_prompt(dynamic=True)
+        async def team_system_prompt(ctx: RunContext[ATeamDeps]) -> str:
+            print(f"Getting team ssystem prompt: {ctx.deps.team}")
+            team = ctx.deps.team
+            if len(team)<0:
+                return """
+                    Your task is to obtain an objective from the user.  
+                    generate a team of experts with diverse expertise to consult on the objective.
+                    Use the 'create_team' tool with the generated team, to pull the team together.
+                """
+            else:
+                teamout = []
+                for tm in ctx.deps.team:
+                    teamout.append(f"{tm.name} : {tm.role}\n")
+                teamout = ' '.join(teamout)
+                return f"""
+                    The current team is: 
+                        {teamout}
+
+                    You should describe the objective to the team and the initial tasks to team members then lead the discussion.
+                    Once the objectives have been met, tell the team to stop and present the output to the user.
+                    
+                    When the user's objective has been met, say "**Objective Met**"  
+                    You should ask team members or the user question by proceeding the target of the question with '@'.  For example, @user, @lefty or @righty.
+                    If there is a question or action required by the user and work needs to stop until that answer is provided, say "**raise question**" at the end of the response followed by a specific set of questions.
+                    
+                    Your messages should be structured in sections for the intended audience (a team member or user).  Precede each message section with '@' and the target's name.
+                        For example:
+                        
+                            @righty:
+                                Please collected the details about product x.
+                            @lefty:
+                                Here is the results to task 2: 'foobar'.
+                            @user:
+                                I have righty working on collecting the details of product x.  Lefty has the results to task2: 'foobar'
+                                
+                        Second Example:
+                            @righty:
+                                Please collected the details about product x.
+                            @lefty:
+                                I need more detail about the type of product y to complete my analysis.
+                            @user:
+                                I have Righty working on collecting the details of product x.  Lefty needs more details about product y.
+                        
+                        **raise question**
+                        Can you please provide more details about product y?    
+                    
+                    
+                """
     
 

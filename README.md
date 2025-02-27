@@ -41,7 +41,7 @@ Commands:
   reasoner  Start the interactive chat with reasoner.
 ```
 
-The base ```lia``` command will have you interacting with the "context_manager_agent".  You can establish a differnet default agent, with ```-a <agent>```, for example ```lia -a supply_chain_agent```.
+The base ```lia lia``` command will have you interacting with the "context_manager_agent".  You can establish a differnet default agent, with ```-a <agent>```, for example ```lia lia -a supply_chain_agent```.
 
 Two other setups for lia are the Automoteam (ateam) and the Reasoner.
 

@@ -76,8 +76,9 @@ class ReasoningAgent(Agent):
                 Tasks:
                 1. Determine objective and generate initial tasks for @lefty and @righty.
                 2. Examine responses from @lefty and @righty to identify mistakes and improvements.  Continue the discussion towards achieving the user's objective.
-                3. When the user's objective has been met, say "**Objective Met**"
                 
+                When the user's objective has been met, say "**Objective Met**"
+
                 You should ask team members or the user question by proceeding the target of the question with '@'.  For example, @user, @lefty, or @righty.
                 If there is a question or action required by the user and work needs to stop until that answer is provided, say "**raise question**" at the end of the response followed by a specific set of questions.
                 

@@ -5,16 +5,15 @@ import inspect
 from prompt_toolkit import PromptSession
 from lia.analysis_context import AnalysisContext
 from pydantic_ai.models.openai import OpenAIModel
-from pydantic_ai import capture_run_messages, UnexpectedModelBehavior, Agent
+from pydantic_ai import capture_run_messages, UnexpectedModelBehavior, Agent,AgentRunError
 from lia.agent import load_agent, list_agents
 from dataclasses import dataclass
 from lia.agent.message_routing_agent.message_routing_agent import MessageRoutingAgent,AgentMessage
-from lia.agent.ateam_agent.ateam_agent import RegisteredAgent
-@dataclass
-class ATeamDeps:
-    team: list
-    agents: dict
+from lia.agent.ateam_agent.ateam_agent import RegisteredAgent,TeamMember,ATeamDeps,ATeamAgent
 
+@dataclass
+class RoutingDeps:
+    team: list[TeamMember]
 
 class ATeam:
     prompt = "(ATeam) > "
@@ -27,19 +26,19 @@ class ATeam:
         self.agents = {}
         self.queue = asyncio.Queue()
         self.message_history = []
+
         self.default_model = OpenAIModel(
             model_name=self.options.model_name,
             base_url=self.options.llm_api_url,
             api_key=self.options.llm_api_key
         )
-        
-        if options.agent is not None:
-            self.default_agent = load_agent(options.agent, model=self.default_model)
-        else:
-            self.default_agent = load_agent('ateam_agent', model=self.default_model)
+  
+        print("Here")
+        self.default_agent = ATeamAgent(model=self.default_model)
+        print("here2")
         if self.default_agent.name is not None and options.agent is not None:
             self.prompt = f"({self.default_agent.name}) > "
-  
+
         self.message_routing_agent = load_agent('message_routing_agent', model=self.default_model)
         if options.debug:
             pprint.pprint(self.default_agent, indent=2)
@@ -47,33 +46,31 @@ class ATeam:
     async def run_cli(self):
         session = PromptSession(self.prompt)
         # Start background task to process the message queue.
-        self.queue_task = asyncio.create_task(self.process_message_queue())
-        print("Starting interactive chat with ATeam.\nType '/help' for commands or '/exit' to quit.\n")
-        try:
-            while True:
-                try:
-                    # prompt_async lets you use prompt_toolkit in an async loop.
-                    line = await session.prompt_async(self.prompt)
-                except (EOFError, KeyboardInterrupt):
-                    # When ctrl-d (or ctrl-c) is pressed, treat the input as the EOF command.
-                    line = "EOF"
-                line = line.strip()
-                if not line:
-                    continue
-                # If the line is exactly "EOF", handle it as a command.
-                if line == "EOF":
-                    command_line = "EOF"
-                elif line.startswith('/'):
-                    command_line = line[1:]
-                else:
-                    # Otherwise, prepend the "send" command.
-                    command_line = "send " + line
-                # Process the command.
-                should_exit = await self.handle_command(command_line)
-                if should_exit:
-                    break
-        finally:
-            self.queue_task.cancel()
+        print("Starting interactive chat with Reasoner.\nType '/help' for commands or '/exit' to quit.\n")
+        
+        while True:
+            try:
+                # prompt_async lets you use prompt_toolkit in an async loop.
+                line = await session.prompt_async(self.prompt)
+            except (EOFError, KeyboardInterrupt):
+                # When ctrl-d (or ctrl-c) is pressed, treat the input as the EOF command.
+                line = "EOF"
+            line = line.strip()
+            if not line:
+                continue
+            # If the line is exactly "EOF", handle it as a command.
+            if line == "EOF":
+                command_line = "EOF"
+            elif line.startswith('/'):
+                command_line = line[1:]
+            else:
+                # Otherwise, prepend the "send" command.
+                command_line = "send " + line
+            # Process the command.
+            should_exit = await self.handle_command(command_line)
+            if should_exit:
+                break
+
     
     async def handle_command(self, line: str) -> bool:
         # Split the line into command and argument.
@@ -94,7 +91,8 @@ class ATeam:
     # Command methods:
     async def do_send(self, user_input):
         """Send a message to the main agent."""
-        self.add_to_queue(user_input, "leader", "@user")
+        await self.resume_reasoning()
+        asyncio.create_task(self.send_to_agent(user_input,"leader","user"))
         return False
     
     def do_help(self, command):
@@ -137,135 +135,133 @@ class ATeam:
     def register_agent(self, agent):
         self.agents[agent.name] = RegisteredAgent(agent,[])
         
-    async def message_route_planner(self,message):
-        response = await self.message_routing_agent.run(
-            message,
-            deps=ATeamDeps(team=self.team,agents=self.agents),
-            result_type=list[AgentMessage]
-        )
+    async def send_to_agent(self, message: str, target:str, sender: str):
+        print("Send to agent {sender} -> {target}")
+        target = target.lower()
+        if target=="leader":
+            agent=self.default_agent
+            if len(self.team)>0:
+                message_history = self.message_history
+            else:
+                message_history = []
+            temperature = 0.2
+        elif target in self.agents:
+            agent=self.agents[target].agent
+            message_history = self.agents[target].messages
+            temperature=0.5
         
-        if self.options.debug:
-            print(f"Message Route Planner Debug Data:\n{response.new_messages()}")
-            print(f"Response Data Type: {type(response.data)}")
-        
-        if isinstance(response.data,list):
-            return response.data
         else:
-            print(f"Invalid Response Data from route planner:\n{response.data}")
-            raise Exception("Invalid RoutePlanResponse")
-        
-    async def send_to_leader(self, message: str, sender: str):
-        
-        if self.options.reasoning and sender!="@user":
-            print(f"[{sender} -> Leader]: {message}\n")
+            print("Invalid agent target: {target}. Dropping Message")
+            return
             
-        response = await self.default_agent.run(
-            message,
-            message_history=self.message_history,
-            deps=ATeamDeps(team=self.team,agents=self.agents),
-            result_type=str,
-            model_settings={'temperature': 0.5},
-        )
-        newmsgs = response.new_messages()
-        if self.options.debug:
-            pprint.pp(newmsgs,indent=3)
-        self.message_history += newmsgs
-
-        messages = await self.message_route_planner(response.data)
-        # print(f"Route Plan: {messages}")
-        joined_messages = {}
-        for msg in messages:
-            if msg.message=='':
-                return
-            # print(f"aResponseMSG: {msg}")
-            
-            if msg.target not in joined_messages:
-                joined_messages[msg.target] = []
-            
-            if msg.target == "@user" or msg.target == "@all":
-                print(f"[Leader]: {msg.message}\n")
-            
-            if msg.target != "@user":    
-                joined_messages[msg.target].append(msg.message)
-                # self.add_to_queue(msg.message, "@team", "leader")
-
-        if "@team" in joined_messages:
-            for tm in self.team:
-                if tm.name not in joined_messages:
-                    joined_messages[tm.name] = []
-                joined_messages[tm.name] += joined_messages["@team"]
-            del joined_messages["@team"]
-
-        if "@all" in joined_messages:
-            for tm in self.team:
-                if tm.name not in joined_messages:
-                    joined_messages[tm.name] = []
-                joined_messages[tm.name] += joined_messages["@all"]
-            del joined_messages["@all"]
-
-
-        # print(f"Joined Messages: \n{joined_messages}")
-        for target in joined_messages:
-            if len(joined_messages[target])>0:
-                self.add_to_queue(' '.join(joined_messages[target]), target, "leader")
-
-
-
-        return False
-    
-    async def send_to_agent(self, message: str, to: str, sender: str):
-        # print("Send to Agents()")
+        message_preamble = f"[From {sender}]:\n"
+        msg = f"{message_preamble}: {message}"
         
-        if self.options.reasoning:
-            print(f"[{sender} -> {to}]: {message}\n")
+        if self.options.reasoning and sender!="user":
+            print(f"[{sender} -> {target}]: {message}\n")
+        else:
+            print(f"[{sender} -> {target}]")
         
-        if to == "leader" and sender != "leader":
-            await self.send_to_leader(message, sender)
-        else:    
-            agent = self.agents[to].agent
-            if sender is None or agent.name != sender:
-                response = await agent.run(
-                    message,
-                    message_history=self.agents[to].messages,
-                    model_settings={'temperature': 0.8}
-                )
-                newmsgs = response.new_messages()
+        try:
+            response = await agent.run(
+                msg,
+                message_history=message_history,
+                result_type=str,
+                deps=ATeamDeps(team=self.team,agents=self.agents),
+                model_settings={'temperature': temperature,"num_ctx": 131072},
+            )
+            
+            newmsgs = response.new_messages()
+            if self.options.debug:
+                print(f"New Messages from {agent.name}")
+                pprint.pp(newmsgs,indent=3)
 
-                self.agents[to].messages += newmsgs
-                if self.options.reasoning:
-                    print(f"[{agent.name} -> Leader]: {message}\n")
-                self.add_to_queue(response.data, "leader", agent.name)
+            if target=="leader":
+                self.message_history += newmsgs
+            else:
+                self.agents[target].messages += newmsgs
+
+            for kw in ["**objective met**","**raise question**"]:
+                if kw in response.data:
+                    self.stop_reasoning=True            
+
+            if "**no action" not in response.data:
+                asyncio.create_task(self.route_response(response.data,target))
                 
-        return False
-    
-    async def send_to_agents(self, message: str, sender: str):
-        print("Send to Agents()")
-        if sender != "leader":
-            await self.send_to_leader(message, sender)
+        except AgentRunError as err:
+            if self.options.debug:
+                print(f"Got AgentRunError frin {agent.name}: \n{err}")
+            if self.options.reasoning: 
+                print(f"Got AgentRunError from {agent.name}")        
+        
+            if target=="leader":
+                self.message_history.append(err)
+            else:
+                self.agents[target].messages.append(err)
+                
+        except Exception as err:
+            print(f"Error in send_to_agent response: {err}")
             
-        for registered_agent in self.agents:
-            await self.send_to_agent(message, registered_agent.agent.name, sender)
-        return False
-    
-    async def process_message_queue(self):
-        while True:
-            try:
-                qitem = await self.queue.get()
-                if self.options.debug:
-                    print(f"qitem: {qitem}")
-                if qitem['sender'] == "@user":
-                    await self.send_to_leader(qitem['message'], qitem['sender'])
-                else:
-                    if qitem["to"] == "@user": 
-                        print(f"[{qitem['sender']}]: {qitem['message']}")
-                    if qitem['to'] == "@team" or qitem['to'] == '@all':
-                        await self.send_to_agents(qitem['message'], qitem['sender'])
-                    else:
-                        await self.send_to_agent(qitem['message'], qitem['to'], qitem['sender'])
+    async def deliver_messages_from_dict(self,message_dict):
+        md = message_dict["messages"]
+        source = message_dict["source"]
+        for target in md:
+            # print("\tTarget: {target}")
+            msg = []
+            if target in ["all","team"]:
+                continue
+            
+            if 'all' in md:
+                msg += md["all"]
+                
+            if target=="user" and "user" in md:
+                msg += md["user"]
+            
+            if target in self.agents.keys() and target in md:
+                if "team" in md and target!=source:
+                    msg += md["team"]
+                if target != source:
+                    msg += md[target]
+
+            jmsg = ' '.join(msg)
+            
+            if self.stop_reasoning and target=="user":
+                print(f"\n[{source} -> {target}]:{jmsg} ")
+            else:
+                if target != "user":
+                    wait = self.stop_reasoning
+                    while wait:
+                        await asyncio.sleep(2)
+                        wait = self.stop_reasoning
+                    await self.send_to_agent(' '.join(msg),target,source)
                     
-                self.queue.task_done()
-            except Exception as err:
-                print(f"Error processing queue: {err}")
+    async def resume_reasoning(self):
+        self.stop_reasoning=False
+
+    async def route_response(self,message,source:str):
+        print(f"Route Response from {source}: \n{message}")
+        if len(self.team)>0:
+            try:
+                response = await self.message_routing_agent.run(message,deps=RoutingDeps(team=self.team),result_type=list[AgentMessage])
+                md = {}
+                if self.options.debug:
+                    print("Message Routing Agent Response: ")
+                    pprint.pp(response.data)
+                    
+                for msg in response.data:
+                    target = msg.target
+                    if msg.target not in md:
+                        md[target]=[]
+                    
+                    md[target].append(msg.message) 
+            except UnexpectedModelBehavior as err:
+                print("Message router had unexpected behavior: {err}")
+
+        elif source=="leader":
+            md={"user": message}
+        else:
+            md={"leader": message}
+            
+        await self.deliver_messages_from_dict({"messages": md, "source": source})
+
     
-    def add_to_queue(self, msg, to, sender):
-        self.queue.put_nowait({"sender": sender, "to": to, "message": msg})

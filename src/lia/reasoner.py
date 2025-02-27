@@ -10,7 +10,13 @@ from lia.agent import load_agent, list_agents
 from dataclasses import dataclass
 from lia.agent.reasoning_agent.reasoning_agent import create_python_executor_tool
 from lia.agent.message_routing_agent.message_routing_agent import AgentMessage
+from lia.agent.ateam_agent.ateam_agent import TeamMember
 import re
+
+@dataclass
+class RoutingDeps:
+    team: list[TeamMember]
+  
 
 class Reasoner:
     prompt = "(Reasoner) > "
@@ -38,13 +44,14 @@ class Reasoner:
         self.message_routing_agent = load_agent('message_routing_agent', model=self.default_model)
           
         self.create_hemispheres(self.default_model)
-
+        print("Agent ready")
         if options.debug:
             pprint.pp(self.default_agent, indent=2)
             pprint.pp(self.lefty, indent=2)
             pprint.pp(self.righty, indent=2)
     
     def create_hemispheres(self,model):
+        print("Create Lefty")
         self.lefty = Agent(model,name="Lefty",
             tools=[create_python_executor_tool(container_path=self.options.python_tool_container,storage_folder=self.options.storage_folder)],
             system_prompt = 
@@ -62,7 +69,7 @@ class Reasoner:
                     
                 """                    
         )
-        
+        print("Create righty")
         self.righty = Agent(model,name="Righty",
             tools=[create_python_executor_tool(container_path=self.options.python_tool_container,storage_folder=self.options.storage_folder)],
             system_prompt = 
@@ -254,11 +261,16 @@ class Reasoner:
     async def resume_reasoning(self):
         self.stop_reasoning=False
 
+    def getTeam(self):
+        return [
+            TeamMember(name="lefty",role=''),
+            TeamMember(name="righty",role='')
+        ]
                         
     async def route_response(self,message,source:str):
-        # print(f"Route Response from {source}: \n{message}")
+        print(f"Route Response from {source}: \n{message}")
         try:
-            response = await self.message_routing_agent.run(message,result_type=list[AgentMessage])
+            response = await self.message_routing_agent.run(message,deps=RoutingDeps(team=self.getTeam()), result_type=list[AgentMessage])
             md = {}
             if self.options.debug:
                 print("Message Routing Agent Response: ")
