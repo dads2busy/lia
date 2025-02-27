@@ -23,7 +23,7 @@ git clone git@github.com:nssac/lia.git
 - Install ollama (https://ollama.com/download)
 
 ## Usage
-    ```
+```
 $ lia --help
 Usage: lia [OPTIONS] COMMAND [ARGS]...
 
