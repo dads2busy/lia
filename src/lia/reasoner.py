@@ -1,4 +1,4 @@
-# src/Reasoner/ateam.py
+# src/lia/ateam.py
 import asyncio
 import pprint
 import inspect
@@ -58,7 +58,7 @@ class Reasoner:
                         @righty:
                             Please collected the details about product x.
                         @leader:
-                            Here is the results to my task..
+                            Here are the results from my task.
                     
                 """                    
         )
@@ -76,7 +76,7 @@ class Reasoner:
                         @lefty:
                             Please collected the details about product x.
                         @leader:
-                            Here is the results to my task..
+                            Here are the results from my task.
                 """                    
         )
         
@@ -242,7 +242,7 @@ class Reasoner:
             jmsg = ' '.join(msg)
             
             if self.stop_reasoning and target=="user":
-                print(f"[{source}->{target}]:{jmsg} ")
+                print(f"\n[{source} -> {target}]:{jmsg} ")
             else:
                 if target != "user":
                     wait = self.stop_reasoning
@@ -256,7 +256,7 @@ class Reasoner:
 
                         
     async def route_response(self,message,source:str):
-        print(f"Route Response from {source}: \n{message}")
+        # print(f"Route Response from {source}: \n{message}")
         try:
             response = await self.message_routing_agent.run(message,result_type=list[AgentMessage])
             md = {}
