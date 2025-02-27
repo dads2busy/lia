@@ -202,10 +202,10 @@ class Reasoner:
                 self.agent_message_history[target] += newmsgs
 
             for kw in ["**objective met**","**raise question**"]:
-                if kw in response.data:
+                if kw in response.data.lower():
                     self.stop_reasoning=True            
 
-            if "**no action" not in response.data:
+            if "**no action**" not in response.data.lower():
                 asyncio.create_task(self.route_response(response.data,target))
                 
         except AgentRunError as err:

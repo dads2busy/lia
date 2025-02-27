@@ -35,7 +35,7 @@ def create_agent(name:str,role:str,model:OpenAIModel):
     """
     print(f"Create Agent : {name} Prompt: {system_prompt}")
     return Agent(
-        name=name,
+        name=name.lower(),
         model=model,
         deps_type=ATeamDeps,
         system_prompt = system_prompt
@@ -57,7 +57,7 @@ def get_create_team_tool(model=default_model):
             
         for tm in ctx.deps.team:
             if tm.name not in ctx.deps.agents:
-                ctx.deps.agents[tm.name] = RegisteredAgent(agent=create_agent(tm.name,tm.role,model), messages=[])
+                ctx.deps.agents[tm.name.lower()] = RegisteredAgent(agent=create_agent(tm.name,tm.role,model), messages=[])
         
         return "The team has been assembled." 
 
@@ -84,13 +84,13 @@ class ATeamAgent(Agent):
         
         @self.system_prompt(dynamic=True)
         async def team_system_prompt(ctx: RunContext[ATeamDeps]) -> str:
-            print(f"Getting team ssystem prompt: {ctx.deps.team}")
             team = ctx.deps.team
             if len(team)<0:
                 return """
                     Your task is to obtain an objective from the user.  
                     generate a team of experts with diverse expertise to consult on the objective.
-                    Use the 'create_team' tool with the generated team, to pull the team together.
+                    Use the 'create_team' tool with the generated team.
+                    When the create team tool has been run, generate an introduction including the user's objectives to seed each team member.
                 """
             else:
                 teamout = []
@@ -101,30 +101,30 @@ class ATeamAgent(Agent):
                     The current team is: 
                         {teamout}
 
-                    You should describe the objective to the team and the initial tasks to team members then lead the discussion.
+                    Further the discussion with the team members. Point out mistakes that team members make.  Keep the team on the objective.
                     Once the objectives have been met, tell the team to stop and present the output to the user.
                     
                     When the user's objective has been met, say "**Objective Met**"  
-                    You should ask team members or the user question by proceeding the target of the question with '@'.  For example, @user, @lefty or @righty.
+                    You should ask team members or the user question by proceeding the target of the question with '@'.  For example, @user, @larry or @martha.
                     If there is a question or action required by the user and work needs to stop until that answer is provided, say "**raise question**" at the end of the response followed by a specific set of questions.
                     
                     Your messages should be structured in sections for the intended audience (a team member or user).  Precede each message section with '@' and the target's name.
                         For example:
                         
-                            @righty:
+                            @larry:
                                 Please collected the details about product x.
-                            @lefty:
+                            @martha:
                                 Here is the results to task 2: 'foobar'.
                             @user:
-                                I have righty working on collecting the details of product x.  Lefty has the results to task2: 'foobar'
+                                I have righty working on collecting the details of product x. 
                                 
                         Second Example:
-                            @righty:
+                            @larry:
                                 Please collected the details about product x.
-                            @lefty:
+                            @martha:
                                 I need more detail about the type of product y to complete my analysis.
                             @user:
-                                I have Righty working on collecting the details of product x.  Lefty needs more details about product y.
+                                I have Righty working on collecting the details of product x. 
                         
                         **raise question**
                         Can you please provide more details about product y?    

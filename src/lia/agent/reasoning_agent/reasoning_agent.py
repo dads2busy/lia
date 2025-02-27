@@ -97,7 +97,7 @@ class ReasoningAgent(Agent):
                         @lefty:
                             I need more detail about the type of product y to complete my analysis.
                         @user:
-                            I have Righty working on collecting the details of product x.  Lefty needs more details about product y.
+                            I have Righty working on collecting the details of product x. 
                     
                     **raise question**
                     Can you please provide more details about product y?        

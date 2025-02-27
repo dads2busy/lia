@@ -133,17 +133,17 @@ class ATeam:
         return False
     
     def register_agent(self, agent):
-        self.agents[agent.name] = RegisteredAgent(agent,[])
+        self.agents[agent.name.lower()] = RegisteredAgent(agent,[])
         
     async def send_to_agent(self, message: str, target:str, sender: str):
-        print("Send to agent {sender} -> {target}")
+        print(f"Send to agent {sender} -> {target}")
         target = target.lower()
         if target=="leader":
             agent=self.default_agent
-            if len(self.team)>0:
-                message_history = self.message_history
-            else:
-                message_history = []
+            # if len(self.team)>0:
+            message_history = self.message_history
+            # else:
+                # message_history = []
             temperature = 0.2
         elif target in self.agents:
             agent=self.agents[target].agent
@@ -151,7 +151,7 @@ class ATeam:
             temperature=0.5
         
         else:
-            print("Invalid agent target: {target}. Dropping Message")
+            print(f"Invalid agent target: {target}. Dropping Message")
             return
             
         message_preamble = f"[From {sender}]:\n"
@@ -190,7 +190,7 @@ class ATeam:
                 
         except AgentRunError as err:
             if self.options.debug:
-                print(f"Got AgentRunError frin {agent.name}: \n{err}")
+                print(f"Got AgentRunError from {agent.name}: \n{err}")
             if self.options.reasoning: 
                 print(f"Got AgentRunError from {agent.name}")        
         
@@ -215,13 +215,13 @@ class ATeam:
                 msg += md["all"]
                 
             if target=="user" and "user" in md:
-                msg += md["user"]
+                msg.append(f"{md['user']}")
             
             if target in self.agents.keys() and target in md:
                 if "team" in md and target!=source:
-                    msg += md["team"]
+                    msg.append(f"{md['team']}")
                 if target != source:
-                    msg += md[target]
+                    msg.append(f"{md[target]}")
 
             jmsg = ' '.join(msg)
             
