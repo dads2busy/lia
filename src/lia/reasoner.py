@@ -282,8 +282,9 @@ class Reasoner:
             await self.deliver_messages_from_dict({"messages": md, "source": source})
                             
         except UnexpectedModelBehavior as err:
-            print("Message router had unexpected behavior: {err}")
+            print(f"Message router had unexpected behavior: {err}")
             if default_route is not None:
+                print(f"Using default route ({default_route}) for response.")
                 md[default_route] = [message]
         
                 
