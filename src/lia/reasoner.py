@@ -10,7 +10,7 @@ from lia.agent import load_agent, list_agents
 from dataclasses import dataclass
 from lia.agent.reasoning_agent.reasoning_agent import create_python_executor_tool
 from lia.agent.message_routing_agent.message_routing_agent import AgentMessage,RoutingDeps
-from lia.agent.ateam_agent.ateam_agent import TeamMember
+from lia.agent.ateam_agent.ateam_agent import TeamMember,ATeamDeps
 import re
 
 
@@ -25,6 +25,7 @@ class Reasoner:
         self.stopped_message = None
         self.isFirstMessage=True
         self.message_history = []
+        self.team_introduced_to_problem=False
         self.agent_message_history = {"lefty": [], "righty":[]}
         
         print(f"Model:\n\t{self.options.model_name}\n\t{self.options.llm_api_url}\n\t{self.options.llm_api_key}")
@@ -184,13 +185,14 @@ class Reasoner:
             print(f"[{sender} -> {target}]")
         
         try:
+            deps = ATeamDeps(team=self.getTeam(),agents={},team_introduced_to_problem=self.team_introduced_to_problem)
             response = await agent.run(
                 msg,
                 message_history=message_history,
                 result_type=str,
-                model_settings={'temperature': temperature,"num_ctx": 131072},
+                deps=deps,
+                model_settings={'temperature': temperature,"num_ctx": 131072,"keep_alive":-1},
             )
-            
             newmsgs = response.new_messages()
             if self.options.debug:
                 print(f"New Messages from {agent.name}")
@@ -206,20 +208,13 @@ class Reasoner:
                     self.stop_reasoning=True            
 
             if "**no action**" not in response.data.lower():
-                asyncio.create_task(self.route_response(response.data,target))
+                asyncio.create_task(self.route_response(response.data,target,default_route=sender))
                 
         except AgentRunError as err:
             if self.options.debug:
                 print(f"Got AgentRunError frin {agent.name}: \n{err}")
             if self.options.reasoning: 
                 print(f"Got AgentRunError from {agent.name}")        
-
-            # need to see if returning an error, typically from a tool like the python executor
-            # is getting included into the message history (so it can correct).        
-            # if target=="leader":
-            #     self.message_history.append(err)
-            # else:
-            #     self.agent_message_history[target].append(err)
                 
         except Exception as err:
             print(f"Error in send_to_agent response: {err}")
@@ -255,7 +250,7 @@ class Reasoner:
                     while wait:
                         await asyncio.sleep(2)
                         wait = self.stop_reasoning
-                    await self.send_to_agent(' '.join(msg),target,source)
+                    await self.send_to_agent(jmsg,target,source)
                     
     async def resume_reasoning(self):
         self.stop_reasoning=False
@@ -266,20 +261,20 @@ class Reasoner:
             TeamMember(name="righty",role='')
         ]
                         
-    async def route_response(self,message,source:str):
+    async def route_response(self,message,source:str, default_route:str|None=None):
         print(f"Route Response from {source}: \n{message}")
+        md = {}
         try:
             deps = RoutingDeps(team=self.getTeam())
             print(f"Routing Deps: {deps}")
             response = await self.message_routing_agent.run(message,deps=deps, result_type=list[AgentMessage])
-            md = {}
             if self.options.debug:
                 print("Message Routing Agent Response: ")
                 pprint.pp(response.data)
                 
             for msg in response.data:
-                target = msg.target
-                if msg.target not in md:
+                target = msg.target.lower()
+                if target not in md:
                     md[target]=[]
                 
                 md[target].append(msg.message) 
@@ -287,7 +282,10 @@ class Reasoner:
             await self.deliver_messages_from_dict({"messages": md, "source": source})
                             
         except UnexpectedModelBehavior as err:
-           print("Message router had unexpected behavior: {err}")
+            print("Message router had unexpected behavior: {err}")
+            if default_route is not None:
+                md[default_route] = [message]
         
                 
+        await self.deliver_messages_from_dict({"messages": md, "source": source})
 

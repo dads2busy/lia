@@ -27,7 +27,7 @@ class MessageRoutingAgent(Agent):
     """
     Returns an ATeam Agent
     """
-    def __init__(self, model=default_model,name:str="MessageRoutingAgent",deps_type=RoutingDeps,tools=[],system_prompt=None, result_type=list[AgentMessage],retries:int=15):
+    def __init__(self, model=default_model,name:str="MessageRoutingAgent",deps_type=RoutingDeps,tools=[],system_prompt=None, result_type=list[AgentMessage],retries:int=5):
 
         system_prompt=f"""
             You are a message routing agent. 
@@ -40,6 +40,7 @@ class MessageRoutingAgent(Agent):
  
             For example, if the team members are 'lefty' and 'righty', then the available targets are:
                 @user - Send to the user
+                @leader - Send to the leader
                 @[team member name]  - send to specific team member (e.g, @lefty, @righty)
              
            Generate a complete list of messages containing all available targets. Output should be JSON
@@ -54,11 +55,11 @@ class MessageRoutingAgent(Agent):
     
         @self.system_prompt(dynamic=True)
         async def add_team_to_system_prompt(ctx: RunContext[RoutingDeps]) -> str:
-            # For instance, concatenate team details into the prompt.
-            # print("Adding team to system prompt")
             if len(ctx.deps.team)<0:
-                return "There are currently no team members.  Only route between user and leader."
+                p = "There are currently no team members.  Only route between user and leader."
             else:
                 team_info = ", ".join(member.name for member in ctx.deps.team)
-                return f"Team members: {team_info}"
+                p = f"Team members: {team_info}"
         
+            # print(f"Message Routing Agent Team Prompt: {p}")
+            return p

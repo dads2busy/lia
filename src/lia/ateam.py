@@ -8,12 +8,9 @@ from pydantic_ai.models.openai import OpenAIModel
 from pydantic_ai import capture_run_messages, UnexpectedModelBehavior, Agent,AgentRunError
 from lia.agent import load_agent, list_agents
 from dataclasses import dataclass
-from lia.agent.message_routing_agent.message_routing_agent import MessageRoutingAgent,AgentMessage
+from lia.agent.message_routing_agent.message_routing_agent import MessageRoutingAgent,AgentMessage,RoutingDeps
 from lia.agent.ateam_agent.ateam_agent import RegisteredAgent,TeamMember,ATeamDeps,ATeamAgent
 
-@dataclass
-class RoutingDeps:
-    team: list[TeamMember]
 
 class ATeam:
     prompt = "(ATeam) > "
@@ -24,18 +21,16 @@ class ATeam:
         self.stop_queue = False
         self.team = []
         self.agents = {}
-        self.queue = asyncio.Queue()
         self.message_history = []
-
+        self.team_introduced_to_problem = False
+        
         self.default_model = OpenAIModel(
             model_name=self.options.model_name,
             base_url=self.options.llm_api_url,
             api_key=self.options.llm_api_key
         )
   
-        print("Here")
         self.default_agent = ATeamAgent(model=self.default_model)
-        print("here2")
         if self.default_agent.name is not None and options.agent is not None:
             self.prompt = f"({self.default_agent.name}) > "
 
@@ -45,9 +40,7 @@ class ATeam:
     
     async def run_cli(self):
         session = PromptSession(self.prompt)
-        # Start background task to process the message queue.
-        print("Starting interactive chat with Reasoner.\nType '/help' for commands or '/exit' to quit.\n")
-        
+        print("Starting interactive chat with Reasoner.\nType '/help' for commands or '/exit' to quit.\n")        
         while True:
             try:
                 # prompt_async lets you use prompt_toolkit in an async loop.
@@ -136,7 +129,8 @@ class ATeam:
         self.agents[agent.name.lower()] = RegisteredAgent(agent,[])
         
     async def send_to_agent(self, message: str, target:str, sender: str):
-        print(f"Send to agent {sender} -> {target}")
+        # print(f"Send to agent {sender} -> {target}")
+        # print(f"Send to agent msg: {message}")
         target = target.lower()
         if target=="leader":
             agent=self.default_agent
@@ -144,7 +138,7 @@ class ATeam:
             message_history = self.message_history
             # else:
                 # message_history = []
-            temperature = 0.2
+            temperature = 0.4
         elif target in self.agents:
             agent=self.agents[target].agent
             message_history = self.agents[target].messages
@@ -154,20 +148,26 @@ class ATeam:
             print(f"Invalid agent target: {target}. Dropping Message")
             return
             
-        message_preamble = f"[From {sender}]:\n"
-        msg = f"{message_preamble}: {message}"
-        
+        message_preamble = f"\n[From {sender}]:\n"
+        msg = f"{message_preamble}{message}"
         if self.options.reasoning and sender!="user":
-            print(f"[{sender} -> {target}]: {message}\n")
+            print(f"\n[{sender} -> {target}]: {message}\n")
         else:
-            print(f"[{sender} -> {target}]")
+            print(f"\n[{sender} -> {target}]")
         
         try:
+            # print("send msg")
+            # print(f"team: {self.team}")
+            # print(f"agents: {self.agents}")
+            # print(f"team_introduced: {self.team_introduced_to_problem}")
+            # print(f"Message_history: {message_history}")
+            deps = ATeamDeps(team=self.team,agents=self.agents,team_introduced_to_problem=self.team_introduced_to_problem)
+    
             response = await agent.run(
                 msg,
                 message_history=message_history,
                 result_type=str,
-                deps=ATeamDeps(team=self.team,agents=self.agents),
+                deps=deps,
                 model_settings={'temperature': temperature,"num_ctx": 131072},
             )
             
@@ -178,15 +178,15 @@ class ATeam:
 
             if target=="leader":
                 self.message_history += newmsgs
-            else:
+            elif target in self.agents:
                 self.agents[target].messages += newmsgs
 
             for kw in ["**objective met**","**raise question**"]:
-                if kw in response.data:
+                if kw in response.data.lower() and sender == "leader":
                     self.stop_reasoning=True            
 
-            if "**no action" not in response.data:
-                asyncio.create_task(self.route_response(response.data,target))
+            if "**no action**" not in response.data:
+                asyncio.create_task(self.route_response(response.data,target,default_route=sender))
                 
         except AgentRunError as err:
             if self.options.debug:
@@ -199,10 +199,11 @@ class ATeam:
             print(f"Error in send_to_agent response: {err}")
             
     async def deliver_messages_from_dict(self,message_dict):
+        # print(f"message_dict: {message_dict}")
         md = message_dict["messages"]
         source = message_dict["source"]
         for target in md:
-            # print("\tTarget: {target}")
+            # print(f"\tDeliver Target: {target}")
             msg = []
             if target in ["all","team"]:
                 continue
@@ -211,13 +212,13 @@ class ATeam:
                 msg += md["all"]
                 
             if target=="user" and "user" in md:
-                msg.append(f"{md['user']}")
+                msg += md['user']
             
             if target in self.agents.keys() and target in md:
                 if "team" in md and target!=source:
-                    msg.append(f"{md['team']}")
+                    msg += md['team']
                 if target != source:
-                    msg.append(f"{md[target]}")
+                    msg += md[target]
 
             jmsg = ' '.join(msg)
             
@@ -225,16 +226,17 @@ class ATeam:
                 print(f"\n[{source} -> {target}]:{jmsg} ")
             else:
                 if target != "user":
-                    wait = self.stop_reasoning
+                    wait = self.stop_reasoning 
+    
                     while wait:
-                        await asyncio.sleep(2)
-                        wait = self.stop_reasoning
-                    await self.send_to_agent(' '.join(msg),target,source)
+                        print("Still waiting")
+                        await asyncio.sleep(2)   
+                    await self.send_to_agent(jmsg,target,source)
                     
     async def resume_reasoning(self):
         self.stop_reasoning=False
 
-    async def route_response(self,message,source:str):
+    async def route_response(self,message,source:str, default_route:str|None=None):
         print(f"Route Response from {source}: \n{message}")
         if len(self.team)>0:
             try:
@@ -243,20 +245,24 @@ class ATeam:
                 if self.options.debug:
                     print("Message Routing Agent Response: ")
                     pprint.pp(response.data)
-                    
+                # print(f"Route Response Data: {response.data}") 
                 for msg in response.data:
-                    target = msg.target
-                    if msg.target not in md:
+                    target = msg.target.lower()
+                    if target == source:
+                        continue
+                    
+                    if target not in md:
                         md[target]=[]
                     
                     md[target].append(msg.message) 
             except UnexpectedModelBehavior as err:
-                print("Message router had unexpected behavior: {err}")
-
+                print(f"Message router had unexpected behavior: {err}")
+                if default_route is not None:
+                    md[default_route] = [message]
         elif source=="leader":
-            md={"user": message}
+            md={"user": [message]}
         else:
-            md={"leader": message}
+            md={"leader": [message]}
             
         await self.deliver_messages_from_dict({"messages": md, "source": source})
 

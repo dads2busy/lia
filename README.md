@@ -21,6 +21,7 @@ git clone git@github.com:nssac/lia.git
 *Note, I have not fully tested that I have everything currently needed defined in the pyproject.toml.  If you find you need to pip install something. Please add it to the pyproject.toml or let me know (dm8qs@virginia.edu)*
 
 - Install ollama (https://ollama.com/download)
+- Install Apptainer (note this generally means running this on Rivanna with module load apptainer or running on a local linux machine with apptainer installed)
 
 ## Usage
 ```
