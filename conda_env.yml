@@ -1,0 +1,15 @@
+name: lia
+channels:
+  - conda-forge
+dependencies:
+  - python=3.12
+  - pip
+  - pip:
+      - beautifulsoup4
+      - duckdb
+      - ipython
+      - matplotlib
+      - networkx
+      - pandas[pyarrow]
+      - requests
+      - scipy
