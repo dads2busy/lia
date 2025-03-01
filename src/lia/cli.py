@@ -9,8 +9,9 @@ from lia.ateam import ATeam
 from lia.reasoner import Reasoner
 from pydantic import BaseModel
 import os
+import json
 import asyncio
-
+from lia.supply_chain_network_generator import analyze_product,Product,GenerateSupplyChainNetworkOptions
 app = typer.Typer()
 
 class Options(BaseModel):
@@ -23,9 +24,40 @@ class Options(BaseModel):
     llm_api_key: str = ""
     python_tool_container: str | None = None
 
+
+
+
+
+@app.command()
+def generate_supply_chain_network (
+    product: str,
+    output: Annotated[str,None, typer.Option("--output", "-o", help="Output file.  If not provided, output stdout")] = None,
+    debug: Annotated[bool, typer.Option("--debug", "-d", help="Enable debugging output.")] = False,
+    model:  Annotated[str, typer.Option("--model", "-m", help="Default Base Model Name")] = "llama3.3",
+    llm_api_url: Annotated[str,None, typer.Option("--llm-api-url", "-u", help="URL to LLM API")] = "http://localhost:11434/v1",
+    llm_api_key: Annotated[str, typer.Option("--llm-api-key", "-k", help="API Key if needed for LLM")] = "None",
+):
+    """
+    Start the Supply Chain Network Generator
+    """
+    print("Starting Supply Chain Network Generator")
+    options = GenerateSupplyChainNetworkOptions(debug=debug,model_name=model,llm_api_url=llm_api_url,llm_api_key=llm_api_key)
+    try: 
+        results = asyncio.run(analyze_product(Product(name=product),options))
+        
+        print(f"Product: {results['product'].name}\nDescription:\n{results['product'].description}")
+        if output is not None:
+            with open(output, 'w') as f:
+                json.dump(results["tree"], f, indent=4)
+                f.close()
+        else:
+            print(results)
+            
+    except Exception as err:
+        print(f"Error generator supply chain network:\n{err}")
+
 @app.command()
 def reasoner(
-    file: Annotated[str, typer.Option("--file", "-f", help="Path to a JSON file containing an analysis context object.")] = None,
     debug: Annotated[bool, typer.Option("--debug", "-d", help="Enable debugging output.")] = False,
     reasoning: Annotated[bool, typer.Option("--reasoning", "-r", help="Show inter agent messaging.")] = False,
     model:  Annotated[str, typer.Option("--model", "-m", help="Default Base Model Name")] = "llama3.3",
@@ -47,7 +79,7 @@ def reasoner(
         exit(1)
     
     try:
-        ateam_shell = Reasoner(file, options)
+        ateam_shell = Reasoner(options)
         asyncio.run(ateam_shell.run_cli())
     except Exception as e:
         print(f"Error loading context: {e}")
@@ -55,7 +87,6 @@ def reasoner(
 
 @app.command()
 def ateam(
-    file: Annotated[str, typer.Option("--file", "-f", help="Path to a JSON file containing an analysis context object.")] = None,
     debug: Annotated[bool, typer.Option("--debug", "-d", help="Enable debugging output.")] = False,
     reasoning: Annotated[bool, typer.Option("--reasoning", "-r", help="Show reasoning discussion.")] = False,
     model:  Annotated[str, typer.Option("--model", "-m", help="Default Base Model Name")] = "llama3.3",
@@ -77,7 +108,7 @@ def ateam(
         exit(1)
     
     try:
-        ateam_shell = ATeam(file, options)
+        ateam_shell = ATeam(options)
         asyncio.run(ateam_shell.run_cli())
     except Exception as e:
         print(f"Error loading context: {e}")

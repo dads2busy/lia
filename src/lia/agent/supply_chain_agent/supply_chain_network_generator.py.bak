@@ -11,21 +11,22 @@ import json
 
 max_recursion_depth:int = 3
 
+class GenerateSupplyChainNetworkOptions(BaseModel):
+    product: str
+    debug: bool = False
+    model_name: str = "llama3.3"
+    llm_api_url: str | None
+    llm_api_key: str = ""
+
 @dataclass
 class Product:
     name: str
     description: str|None = None
     
-
 @dataclass
 class Subcomponent:
     name: str
     parent: str|list[str]|None = None    
-
-# @dataclass
-# class Tree:
-#     component:Subcomponent|str
-#     components: list[str] = field(default_factory=list)
 
 
 autoid = 0
@@ -34,7 +35,6 @@ def getAutoId():
     global autoid
     autoid+=1
     return autoid
-
 
 
 class Component:
@@ -397,7 +397,13 @@ def serialize_component_tree(root):
     traverse(root)
     network = {"nodes": nodes, "edges": links}
     return json.dumps(network, indent=4)
-        
+
+TaskGraph = Graph(nodes=(GenerateSupplyChainNetwork,GetProductDescription,GetProductSystems,DedupeProductSystems,GetComponents,DedupeComponents,ClassifyComponents))
+
+async def analyze_product(product:str,options):
+    pass
+
+
 async def main():
     product = Product(
         name='Apple M1 Microprocessor'
@@ -405,10 +411,9 @@ async def main():
     state = GraphState(product=product,tree=Component(name=product.name))
     print(f"Analyzing {product}")
     # print(f"Initial State: {state}")
-    graph = Graph(nodes=(GenerateSupplyChainNetwork,GetProductDescription,GetProductSystems,DedupeProductSystems,GetComponents,DedupeComponents,ClassifyComponents))
-    # graph.mermaid_save("SupplyChainMermaid.png")
-    # print(f"Graph: {graph}")
-    result= await graph.run(GenerateSupplyChainNetwork(),state=state)
+    # TaskGraph.mermaid_save("SupplyChainMermaid.png")
+    # print(f"Graph: {TaskGraph}")
+    result= await TaskGraph.run(GenerateSupplyChainNetwork(),state=state)
     print("Graph Run Complete.")
     pprint.pp(result[-1][-1].result.data["tree"],indent=4)
 

@@ -15,8 +15,7 @@ from lia.agent.ateam_agent.ateam_agent import RegisteredAgent,TeamMember,ATeamDe
 class ATeam:
     prompt = "(ATeam) > "
     
-    def __init__(self, file: str | None, options):
-        self.file = file
+    def __init__(self,options):
         self.options = options
         self.stop_queue = False
         self.team = []

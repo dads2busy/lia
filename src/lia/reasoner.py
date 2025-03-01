@@ -18,8 +18,7 @@ import re
 class Reasoner:
     prompt = "(Reasoner) > "
     
-    def __init__(self, file: str | None, options):
-        self.file = file
+    def __init__(self,options):
         self.options = options
         self.stop_reasoning=False
         self.stopped_message = None
@@ -42,14 +41,12 @@ class Reasoner:
         self.message_routing_agent = load_agent('message_routing_agent', model=self.default_model)
           
         self.create_hemispheres(self.default_model)
-        print("Agent ready")
         if options.debug:
             pprint.pp(self.default_agent, indent=2)
             pprint.pp(self.lefty, indent=2)
             pprint.pp(self.righty, indent=2)
     
     def create_hemispheres(self,model):
-        print("Create Lefty")
         self.lefty = Agent(model,name="Lefty",
             tools=[create_python_executor_tool(container_path=self.options.python_tool_container,storage_folder=self.options.storage_folder)],
             system_prompt = 
@@ -67,7 +64,6 @@ class Reasoner:
                     
                 """                    
         )
-        print("Create righty")
         self.righty = Agent(model,name="Righty",
             tools=[create_python_executor_tool(container_path=self.options.python_tool_container,storage_folder=self.options.storage_folder)],
             system_prompt = 

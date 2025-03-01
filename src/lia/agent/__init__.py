@@ -8,7 +8,7 @@ class AgentDeps:
    analysis_context: AnalysisContext
 
 def load_agent_tool(agent_name, **kwargs):
-    print(f"Get Agent Tool: {agent_name}")
+    # print(f"Get Agent Tool: {agent_name}")
     module = load_agent_module(agent_name)
     
     if not hasattr(module, 'getAgentTool'):
@@ -17,7 +17,7 @@ def load_agent_tool(agent_name, **kwargs):
     return module.getAgentTool(**kwargs) 
  
 def load_agent(agent_name, **kwargs):
-    print(f"Get Agent Instance: {agent_name}")
+    # print(f"Get Agent Instance: {agent_name}")
 
     module = load_agent_module(agent_name)
     
@@ -48,7 +48,7 @@ def load_agent_module(agent_name):
         ImportError: If the module cannot be imported.
         AttributeError: If the module does not define a getAgent() function.
     """
-    print(f"Importing Agent Model: {agent_name}")
+    # print(f"Importing Agent Model: {agent_name}")
     try:
         # Import the module dynamically from the current package.
         module = importlib.import_module(f'.{agent_name}', package=__package__)
