@@ -57,6 +57,9 @@ The LLM api url defaults to localhost, but if you are using Rivanna or some othe
 LLM Inference engine, use --llm-api-url.
 ```lia reasoner --llm-api-url=http://udc-an36-25:11434/v1```
 
+There is also a non-interactive script to generate a supply chain network:
+```lia generate-supply-chain-network -o atmega32p.json "ATmega328P"```
+This script takes the first argument, generate the network, and writes the output to --output/-o
 
 ### Automoteam
 Automoteam is an swarming reasoner.  Given an objective it assembles a team of agents to consider and execute the objective.
