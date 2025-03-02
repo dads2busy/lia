@@ -8,3 +8,4 @@ __pycache__/
 src/lia/tool_image/python_executor.sif
 slurm-*.out
 lia_work_dir/
+src/lia/tool_image/python_executor2.sif

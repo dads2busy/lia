@@ -8,9 +8,10 @@ from pydantic_ai.models.openai import OpenAIModel
 from pydantic_ai import capture_run_messages, UnexpectedModelBehavior, Agent,AgentRunError
 from lia.agent import load_agent, list_agents
 from dataclasses import dataclass
-from lia.agent.reasoning_agent.reasoning_agent import create_python_executor_tool
+from lia.agent.reasoning_agent.reasoning_agent import create_python_executor_tool,AgentPythonExecutionError
 from lia.agent.message_routing_agent.message_routing_agent import AgentMessage,RoutingDeps
 from lia.agent.ateam_agent.ateam_agent import TeamMember,ATeamDeps
+from lia.agent.python_developer_agent.python_developer_agent import PythonDeveloperAgent
 import re
 
 
@@ -39,7 +40,9 @@ class Reasoner:
             self.prompt = f"({self.default_agent.name}) > "
   
         self.message_routing_agent = load_agent('message_routing_agent', model=self.default_model)
-          
+        
+        self.debugger_agent = load_agent("python_developer_agent", model=self.default_model)
+        
         self.create_hemispheres(self.default_model)
         if options.debug:
             pprint.pp(self.default_agent, indent=2)
@@ -48,7 +51,7 @@ class Reasoner:
     
     def create_hemispheres(self,model):
         self.lefty = Agent(model,name="Lefty",
-            tools=[create_python_executor_tool(container_path=self.options.python_tool_container,storage_folder=self.options.storage_folder)],
+            tools=[create_python_executor_tool(container_path=self.options.python_tool_container,storage_folder=self.options.storage_folder,agent_name="Lefty")],
             system_prompt = 
                 """
                     You represent the left hemisphere brain of a reasoning agent. Your name is "Lefty".
@@ -65,7 +68,7 @@ class Reasoner:
                 """                    
         )
         self.righty = Agent(model,name="Righty",
-            tools=[create_python_executor_tool(container_path=self.options.python_tool_container,storage_folder=self.options.storage_folder)],
+            tools=[create_python_executor_tool(container_path=self.options.python_tool_container,storage_folder=self.options.storage_folder,agent_name="Righty")],
             system_prompt = 
                 """
                     You represent the right hemisphere brain of a reasoning agent. Your name is 'Righty'. 
@@ -167,18 +170,26 @@ class Reasoner:
             agent=self.righty
             message_history = self.agent_message_history["righty"]
             temperature = 0.9
+        elif target=="debugger":
+            agent=self.debugger_agent
+            message_history = []
+            temperature=0.5
 
         else:
             print("Invalid agent target: {target}. Dropping Message")
             return
             
-        message_preamble = f"[From {sender}]:\n"
+        if target == "debugger":
+            message_preamble = ""
+        else:
+            message_preamble = f"[From {sender}]:\n"
+            
         msg = f"{message_preamble}: {message}"
         
         if self.options.reasoning and sender!="user":
-            print(f"[{sender} -> {target}]: {message}\n")
+            print(f"\n[{sender} -> {target}]:\n{message}\n")
         else:
-            print(f"[{sender} -> {target}]")
+            print(f"\n[{sender} -> {target}]")
         
         try:
             deps = ATeamDeps(team=self.getTeam(),agents={},team_introduced_to_problem=self.team_introduced_to_problem)
@@ -196,21 +207,36 @@ class Reasoner:
 
             if target=="leader":
                 self.message_history += newmsgs
-            else:
+            elif target!="debugger":
                 self.agent_message_history[target] += newmsgs
 
             for kw in ["**objective met**","**raise question**"]:
                 if kw in response.data.lower() and sender == "leader":
                     self.stop_reasoning=True            
 
-            if "**no action**" not in response.data.lower():
+            if target == "debugger":
+                asyncio.create_task(self.send_to_agent(message=response.data,target=sender,sender="debugger"))
+            elif "**no action**" not in response.data.lower():
                 asyncio.create_task(self.route_response(response.data,target,default_route=sender))
+                
+        except AgentPythonExecutionError as err:
+            if self.options.debug:
+                print(f"\nGot PythonError from {agent.name}: \n{err}")
+                
+            if self.options.reasoning: 
+                print(f"\nGot Python error from {agent.name}")        
+            
+            asyncio.create_task(self.send_to_agent(
+                message=f"I had an issue executing my python: {err}",
+                target="leader",
+                sender=target
+            ))   
                 
         except AgentRunError as err:
             if self.options.debug:
-                print(f"Got AgentRunError frin {agent.name}: \n{err}")
+                print(f"\nGot AgentRunError frin {agent.name}: \n{err}")
             if self.options.reasoning: 
-                print(f"Got AgentRunError from {agent.name}")        
+                print(f"\nGot AgentRunError from {agent.name}")        
                 
         except Exception as err:
             print(f"Error in send_to_agent response: {err}")
@@ -258,12 +284,14 @@ class Reasoner:
         ]
                         
     async def route_response(self,message,source:str, default_route:str|None=None):
-        print(f"Route Response from {source}: \n{message}")
+        if self.options.debug:
+            print(f"\nRoute Response from {source}: \n{message}")
+            
         md = {}
         try:
             deps = RoutingDeps(team=self.getTeam())
-            print(f"Routing Deps: {deps}")
-            response = await self.message_routing_agent.run(message,deps=deps, result_type=list[AgentMessage])
+            # print(f"Routing Deps: {deps}")
+            response = await self.message_routing_agent.run(message,deps=deps,  model_settings={'temperature': .1,"num_ctx": 131072,"keep_alive":-1}, result_type=list[AgentMessage])
             if self.options.debug:
                 print("Message Routing Agent Response: ")
                 pprint.pp(response.data)

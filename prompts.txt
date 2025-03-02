@@ -1,0 +1,9 @@
+Create a supply chain network for the ATmega328P microprocessor.
+Determine its components, subcomponents and raw materials.
+Here is a link to its datasheet: https://ww1.microchip.com/downloads/en/DeviceDoc/ATmega48A-PA-88A-PA-168A-PA-328-P-DS-DS40002061A.pdf
+For each component, define the approximate percentage of the component that is made from the raw material.
+Identify the top 3 suppliers of each component, subcomponent, and raw material.
+Identify any manufacturing equipment required to produce components or process the raw materials.
+For each supplier, its market share of the associated component, the volume product (and a unit of the volume), the supplier's country, website address,  physical address, and a google maps link to the physical address.
+Cite all of your references by identifying web links or textual references to the datasheet. Citations should be included in the node or edge metadata of the network.
+The output should be JSON file in node-link format.

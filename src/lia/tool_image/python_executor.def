@@ -3,7 +3,8 @@ From: python:3.12-alpine
 
 %post
 	apk update
-	apk add fakeroot
+	apk add fakeroot alpine-sdk
 	FAKEROOTDONTTRYCHOWN=1 fakeroot sh -c '
-		pip install pandas duckdb scipy networkx requests matplotlib beautifulsoup4
+		dnf group install "Development Tools"
+		pip install pandas duckdb scipy networkx requests matplotlib beautifulsoup4 nltk spacy tabula-py PyPDF2 html5lib lxml
 	'
