@@ -12,6 +12,7 @@ from dataclasses import dataclass
 from pydantic_ai.models.openai import OpenAIModel
 from pydantic_ai import capture_run_messages, UnexpectedModelBehavior
 from lia.agent import load_agent, list_agents, AgentDeps
+from pydantic_ai.mcp import MCPServerStdio
 
 class Lia:
     prompt = "(Lia) > "
@@ -27,38 +28,51 @@ class Lia:
             base_url=self.options.llm_api_url,
             api_key=self.options.llm_api_key
         )
+        
+        print(f"Default Model: {self.options.model_name} {self.options.llm_api_url}")
+        
+        # server = MCPServerStdio('npx', ['-y', '@modelcontextprotocol/server-filesystem', self.options.storage_folder])
+        mcp_servers = [
+            # MCPServerStdio("apptainer", ["run","--bind",f"{self.options.storage_folder}:/data","/sfs/gpfs/tardis/home/dm8qs/filesystem_latest.sif","/data"]),
+            # MCPServerStdio("apptainer", ["run","/sfs/gpfs/tardis/home/dm8qs/mcp-postgres.sif","postgresql://testuser:testpass@10.155.197.1/usgs"]),
+            # MCPServerStdio('npx', ['-y', "@modelcontextprotocol/server-postgres","postgresql://testuser:testpass@10.155.197.1/usgs"])
+        ]
+        
         if options.agent is not None:
-            self.default_agent = load_agent(options.agent, model=self.default_model)
+            self.default_agent = load_agent(options.agent, model=self.default_model,mcp_servers=mcp_servers)
         else:
-            self.default_agent = load_agent('context_manager_agent', model=self.default_model)
+            self.default_agent = load_agent('context_manager_agent', model=self.default_model,mcp_servers=mcp_servers)
+            
         if self.default_agent.name is not None and options.agent is not None:
             self.prompt = f"({self.default_agent.name}) >"
         if options.debug:
             pprint.pprint(self.default_agent, indent=2)
 
+
     async def run_cli(self):
         session = PromptSession(self.prompt)
         print("Starting interactive chat with Lia.\nType '/help' for commands or '/exit' to quit.\n")
-        while True:
-            try:
-                # Use prompt_toolkit’s async prompt.
-                line = await session.prompt_async(self.prompt)
-            except (EOFError, KeyboardInterrupt):
-                # Treat Ctrl-D (or Ctrl-C) as EOF.
-                line = "EOF"
-            line = line.strip()
-            if not line:
-                continue
-            if line == "EOF":
-                command_line = "EOF"
-            elif line.startswith('/'):
-                command_line = line[1:]
-            else:
-                # Prepend the "send" command if not explicitly a command.
-                command_line = "send " + line
-            should_exit = await self.handle_command(command_line)
-            if should_exit:
-                break
+        async with self.default_agent.run_mcp_servers():
+            while True:
+                try:
+                    # Use prompt_toolkit’s async prompt.
+                    line = await session.prompt_async(self.prompt)
+                except (EOFError, KeyboardInterrupt):
+                    # Treat Ctrl-D (or Ctrl-C) as EOF.
+                    line = "EOF"
+                line = line.strip()
+                if not line:
+                    continue
+                if line == "EOF":
+                    command_line = "EOF"
+                elif line.startswith('/'):
+                    command_line = line[1:]
+                else:
+                    # Prepend the "send" command if not explicitly a command.
+                    command_line = "send " + line
+                should_exit = await self.handle_command(command_line)
+                if should_exit:
+                    break
 
     async def handle_command(self, line: str) -> bool:
         parts = line.split(" ", 1)

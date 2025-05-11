@@ -5,8 +5,6 @@ from lia.agent import load_agent_tool
 from pydantic_ai.models.openai import OpenAIModel
 from pydantic_ai import Agent,RunContext
 
-default_model = OpenAIModel(model_name="llama3.3",base_url="http://localhost:11434/v1",api_key="none") 
-
 @dataclass
 class TeamMember():
     """ 
@@ -58,7 +56,7 @@ def create_agent(name:str,role:str,model:OpenAIModel):
 
     return agent
 
-def get_create_team_tool(model=default_model):
+def get_create_team_tool(model:OpenAIModel):
     def create_team(ctx: RunContext[str],team: list[TeamMember],retries=5) -> list[TeamMember]:
         """
             Given a list of TeamMember objects, this tool will create expert team members described by the TeamMember objects.
@@ -85,7 +83,7 @@ class ATeamAgent(Agent):
     """
     Returns an ATeam Agent
     """
-    def __init__(self, model=default_model,name:str="ATeamAgent",tools=[],deps_type=ATeamDeps,result_type=str,retries:int=1):
+    def __init__(self, model:OpenAIModel,name:str="ATeamAgent",tools=[],deps_type=ATeamDeps,result_type=str,retries:int=1):
 
         system_prompt=f"""
                 Role:

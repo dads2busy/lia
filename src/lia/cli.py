@@ -11,7 +11,8 @@ from pydantic import BaseModel
 import os
 import json
 import asyncio
-from lia.supply_chain_network_generator import analyze_product,Product,GenerateSupplyChainNetworkOptions
+from lia.supply_chain_network_generator import analyze_product, Product
+from lia.raw_material_network_generator import get_raw_material_network,GenerateSupplyChainNetworkOptions,serialize_material_network
 app = typer.Typer()
 
 class Options(BaseModel):
@@ -24,8 +25,35 @@ class Options(BaseModel):
     llm_api_key: str = ""
     python_tool_container: str | None = None
 
-
-
+@app.command()
+def generate_material_network (
+    material: list[str],
+    output: Annotated[str,None, typer.Option("--output", "-o", help="Output file.  If not provided, output stdout")] = None,
+    debug: Annotated[bool, typer.Option("--debug", "-d", help="Enable debugging output.")] = False,
+    model:  Annotated[str, typer.Option("--model", "-m", help="Default Base Model Name")] = "llama3.3",
+    llm_api_url: Annotated[str,None, typer.Option("--llm-api-url", "-u", help="URL to LLM API")] = None,
+    llm_api_key: Annotated[str, typer.Option("--llm-api-key", "-k", help="API Key if needed for LLM")] = "None",
+):
+    """
+    Start the Material Network Generator
+    """
+    material = ' '.join(material)
+    print("Starting Material Network Generator")
+    options = GenerateSupplyChainNetworkOptions(debug=debug,model_name=model,llm_api_url=llm_api_url,llm_api_key=llm_api_key)
+    print(f"Material: {material}")
+    print(f"Options:\n{options}")
+    try: 
+        results = asyncio.run(get_raw_material_network(material,options))
+        # print(f"Results: {results.output}")
+        if output is not None:
+            with open(output, 'w') as f:
+                f.write(serialize_material_network(results.output))
+                f.close()
+        else:
+            print(results)
+            
+    except Exception as err:
+        print(f"Error generator supply chain network:\n{err}")
 
 
 @app.command()
@@ -90,7 +118,7 @@ def ateam(
     debug: Annotated[bool, typer.Option("--debug", "-d", help="Enable debugging output.")] = False,
     reasoning: Annotated[bool, typer.Option("--reasoning", "-r", help="Show reasoning discussion.")] = False,
     model:  Annotated[str, typer.Option("--model", "-m", help="Default Base Model Name")] = "llama3.3",
-    llm_api_url: Annotated[str,None, typer.Option("--llm-api-url", "-u", help="")] = "http://localhost:11434/v1",
+    llm_api_url: Annotated[str,None, typer.Option("--llm-api-url", "-u", help="")] = None,
     llm_api_key: Annotated[str, typer.Option("--llm-api-key", "-k", help="")] = "None",
     python_tool_container:  Annotated[str, typer.Option("--tool-container", "-t", help="Path to singularity image for tools")] = "/project/biocomplexity/singularity_images/python_tool_container.sif",
     storage_folder: Annotated[str, typer.Option("--storage", "-s", help="Path to where files can be written and read")] = "./lia_work_dir"
@@ -114,6 +142,7 @@ def ateam(
         print(f"Error loading context: {e}")
         raise typer.Exit(code=1)
 
+# @app.callback(invoke_without_command=True)
 @app.command()
 def lia(
     file: Annotated[str, typer.Option("--file", "-f", help="Path to a JSON file containing an analysis context object.")] = None,
@@ -128,7 +157,9 @@ def lia(
     """
     Start the interactive chat with Lia.
     """
-    options = Options(debug=debug, agent=agent, storage_folder=storage_folder,model=model,llm_api_url=llm_api_url,llm_api_key=llm_api_key)
+    print(f"Model: {model}")
+    options = Options(debug=debug, agent=agent, storage_folder=storage_folder,model_name=model,llm_api_url=llm_api_url,llm_api_key=llm_api_key)
+    print(f"Options: {options}")
     try:
         os.makedirs(storage_folder, exist_ok=True)
     except Exception as err:
@@ -141,12 +172,11 @@ def lia(
             print(f"Analysis Context loaded from {file}.")
         else:
             context = AnalysisContext(name="New Analysis")
-        
-        # Assuming Lia also has a run_cli() method similar to ATeam.
-        asyncio.run(Lia(context, file, options).run_cli())
     except Exception as e:
         print(f"Error loading context: {e}")
         raise typer.Exit(code=1)
+   
+    asyncio.run(Lia(context, file, options).run_cli())
 
 if __name__ == "__main__":
     app()

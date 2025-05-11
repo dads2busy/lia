@@ -1,18 +1,16 @@
 from pydantic_ai import Agent, RunContext
 from pydantic import BaseModel
 from pydantic_ai.models.openai import OpenAIModel
-from lia.tools import add_analysis_question, set_analysis_objective, update_analysis_question,delete_analysis_question
-from lia.tools import add_analysis_constraint, update_analysis_constraint, delete_analysis_constraint,get_analysis_context
+# from lia.tools import add_analysis_question, set_analysis_objective, update_analysis_question,delete_analysis_question
+# from lia.tools import add_analysis_constraint, update_analysis_constraint, delete_analysis_constraint,get_analysis_context
 from lia.analysis_context import AnalysisContext
 from dataclasses import dataclass
 from typing import Union
 import json
 
-default_model = OpenAIModel(model_name="llama3.2",base_url="http://localhost:11434/v1",api_key="none")
-
 
 class NetworkAnalysisAgent(Agent):
-    def __init__(self, model,retries:int=1):
+    def __init__(self, model:OpenAIModel,retries:int=1):
         name = "Network Analysis Agent"
         system_prompt = (
                 "You are an expert in network and graph analysis\n"

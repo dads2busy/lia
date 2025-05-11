@@ -7,11 +7,10 @@ from pydantic_ai import Agent,RunContext,ModelRetry
 
 from lia.agent.ateam_agent.ateam_agent import TeamMember
 
-default_model = OpenAIModel(model_name="llama3.3",base_url="http://localhost:11434/v1",api_key="none") 
 
 @dataclass
 class RoutingDeps:
-    team: list[TeamMember]
+    team: list[TeamMember|str]
   
 
 class AgentMessage(BaseModel):
@@ -27,7 +26,7 @@ class MessageRoutingAgent(Agent):
     """
     Returns an ATeam Agent
     """
-    def __init__(self, model=default_model,name:str="MessageRoutingAgent",deps_type=RoutingDeps,tools=[],system_prompt=None, result_type=list[AgentMessage],retries:int=5):
+    def __init__(self, model:OpenAIModel,name:str="MessageRoutingAgent",deps_type=RoutingDeps,tools=[],system_prompt=None, result_type=list[AgentMessage],retries:int=5):
 
         system_prompt=f"""
             You are a message routing agent. 
@@ -57,6 +56,8 @@ class MessageRoutingAgent(Agent):
         async def add_team_to_system_prompt(ctx: RunContext[RoutingDeps]) -> str:
             if len(ctx.deps.team)<0:
                 p = "There are currently no team members.  Only route between user and leader."
+            elif isinstance(ctx.deps.team[0],str):
+                p = f"Team members: {' '.join(ctx.deps.team)}"
             else:
                 team_info = ", ".join(member.name for member in ctx.deps.team)
                 p = f"Team members: {team_info}"

@@ -6,3 +6,25 @@ Identify any manufacturing equipment required to produce components or process t
 For each supplier, its market share of the associated component, the volume product (and a unit of the volume), the supplier's country, website address,  physical address, and a google maps link to the physical address.
 Cite all of your references by identifying web links or textual references to the datasheet. Citations should be included in the node or edge metadata of the network.
 The output should be JSON file in node-link format.
+
+
+Create a supply chain network for solar cells.
+The network should include the various types of solar cells (e.g., monocrystalline, polycrystalline, thin-film), 
+all of their components and subcomponents (e.g., solar glass, photovoltaic cells), and raw materials (e.g., silicon, copper).
+For each type of cell, component, and raw material.  Identify the top 3 suppliers and their country of origin and the volume of their output of the associated component or raw material.
+This should be a global network.  
+Nodes in the network represent products, components, and raw materials, and suppliers. 
+Include only the elements defined above.  The output should be a JSON file with a node link network.
+
+Create a supply chain graph for a common red LED.
+The graph should be a JSON file with nodes and edges.  
+The nodes should be the components and raw materials.
+For each component and raw material, Include the top 3 suppliers.  For the components, include the percentage of the raw material that the component is made of.
+For each of the suppliers, include the company name, company country, and their percentage of market share.
+
+
+Create a Manufacturing Bill of Materials (BOM) for custom microprocessor.
+The custom microprocessor will be of similar scale and complexity as the ATmega328P microprocessor and will use the same manufacturing technologies.
+We do not consider the specific manufacturer at this time.
+
+Create a Manufacturing Bill of Materials (BOM) for a generic red LED.
