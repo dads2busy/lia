@@ -38,7 +38,6 @@ def query_hscodes(sql: str) -> list[dict]:
     Columns are:
         **id**   - Harmonized Service Code (H6,HS-2022). Digits only. No periods or spaces.
         **text** - Description of the Harmonized Service Code
-        **aggrlevel** - Aggregation level (2 for a 2 digit code, 4 for a 4 digit code, 6 for a 6 digit code, etc.)
         **standardUnitAbbr** - Standard Unit of Measure (UOM) Abbreviation or n/a
     """
     try:

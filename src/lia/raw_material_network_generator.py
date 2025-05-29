@@ -19,15 +19,16 @@ mcp_servers = [
     # MCPServerStdio("apptainer", ["run","--bind",f"{self.options.storage_folder}:/data","/sfs/gpfs/tardis/home/dm8qs/filesystem_latest.sif","/data"]),
     # MCPServerStdio("apptainer", ["run","/sfs/gpfs/tardis/home/dm8qs/mcp-postgres.sif","postgresql://testuser:testpass@10.155.197.1/usgs"]),
     # MCPServerStdio('npx', ['-y', "@modelcontextprotocol/server-postgres","postgresql://testuser:testpass@10.155.197.1/usgs"])
-    # MCPServerStdio('npx', ["-y", "@oevortex/ddg_search"]),
+    MCPServerStdio('uvx', ["duckduckgo-mcp-server"]),
     # MCPServerStdio('npx',["-y", "@pydantic/mcp-run-python", "stdio"]),
-    MCPServerStdio('python', ["-m", "mcp_server_fetch"]),
-    MCPServerStdio('python', ["-m", "mcp_simple_arxiv"]),
+    # MCPServerStdio('python', ["-m", "mcp_server_fetch"]),
+    # MCPServerStdio('python', ["-m", "mcp_simple_arxiv"]),
     # MCPServerStdio('npx',args=["-y", "@modelcontextprotocol/server-puppeteer"],env={"PUPPETEER_LAUNCH_OPTIONS": '{"headless": true}'})
     # MCPServerStdio('npx', ["-y", "@gongrzhe/server-json-mcp@1.0.3"]),
     MCPServerStdio('wikipedia-mcp', ["--transport", "stdio"]),
     # MCPServerStdio('python', ["/sfs/gpfs/tardis/home/dm8qs/lia/src/lia/tools/mcp-server-duckb.py","/sfs/gpfs/tardis/home/dm8qs/lia/src/lia/tools/H6array.json"])
-    MCPServerStdio('python', ["tools/mcp-server-hscode-sql.py"]),
+    # MCPServerStdio('python', ["tools/mcp-server-hscode-sql.py"]),
+    MCPServerStdio('python', ["tools/mcp-server-hscode-vector.py"]),
 ]       
 
 class GenerateSupplyChainNetworkOptions(BaseModel):
@@ -58,6 +59,7 @@ class Node(BaseModel):
 class Link(BaseModel):
     source: str
     target: str
+    references: list[str] = Field(default_factory=list, description="URLs to sources describing the process")      
     process: str = Field(default="Other", description="Industrial transformation")
     
 class DAG(BaseModel):
@@ -89,40 +91,46 @@ async def get_raw_material_network(material: str, options: GenerateSupplyChainNe
     default_model = OpenAIModel(options.model_name,provider=provider)
     
     network_agent_system_prompt = """
-            You are a trade‑supply‑chain analyst.  When given a single material or component name as input, you must build a directed acyclic graph (DAG) of its value‑added chain using HS‑2022 6‑digit codes only (no spaces or dots).  Follow these rules exactly:
-
-            1. If the input is a raw material (e.g. “silicon”), trace forward from raw minerals (stage = “Mined”) through refining and intermediate chemicals (stages = “Refined” and “Base Chemical”) to first‑tier end‑product families (stage = “Product”), including at least one and up to two product codes per branch.  
-            2. If the input is a higher‑level component (e.g. “Photoresist Polymers”), reverse‑trace from its HS‑6 code down through its base chemicals to raw feedstocks and trace forward to its first‑tier end‑product families.  
-            3. Include a maximum of 6 levels of nodes,
-            4. Ensure that all middle materials are traced to their base forms.
-            5. Add and trace any missing base chemicals or raw materials HS Codes that are not already in the graph and are required to support any refined, base chemicals, or products in the graph.
-            6. Exclude any obsolete HS codes that are not part of HS-6 (i.e. “HS-2022”).
-            7. Each **node** must be an object with:
-            - **id**: the 6‑digit HS code  
-            - **material**: the common name  
-            - **description**: The published H6 description of **id**
-            - **stage**: one of “Mined”, “Refined”, “Base Chemical”, “Product”  
-            8. Each **edge** must be an object with:
-            - **source**: the parent node’s HS code  
-            - **target**: the child node’s HS code  
-            - **process**:  <= 20 words description of the transformation or manufacturing step  
-            9. Ensure no duplicate HS codes appear.  
-            10. When an HS Code represents multiple materials, do not split them into separate nodes.  Use the HS-6 code brief description to determine the material name.  If sub-materials are important to a process, the sub-materials may be clarified in the process description. 
-            10. Output **only** a single JSON object with two arrays:  
-            11. You have the following tools available to you which you can use to help build the network:
-                mcp_server_wikipedia: Search for Wikipedia articles to discover the various forms and stages of the material.
-                query_hscodes: Search for H6 codes using sql.
+            You are a trade‑supply‑chain analyst.  
+            When given a single material or component name as input, you must build a directed acyclic graph (DAG) of its value‑added chain using HS‑6 (HS-2022) 6‑digit codes only. 
             
-            When you use query_hscodes tool, follow these rules:
-                - Before calling query_hscodes, think step-by-step and write a numbered list of the queries you will need.  This should not exceed 3 queries.
-                - After you produce the list, execute the queries in that order.
-                - Never call `query_hscodes` more than 3 times per pass.
+            ** STEPS **
+            1. Search for the material on the web with duckduckgo ('search' tool) or wikipedia (wikipedia-mcp tools) to find information about its various forms and stages including precursors, intermediates, and end products. 
+            2. Generate a list of up to 5 SQL Queries to identify the HS-6 codes for the materials identified in step 1.
+            3. Use the query_hscodes tool with the queries identified in step 2 to identify the HS-6 codes for the materials identified in step 1.
+            4. Build a dependency network of the material’s value‑added chain using the HS-6 codes.
+                        
+            ** RULES **
+            - If the input is a raw material (e.g. “silicon”), trace forward from raw minerals (stage = “Mined”) through refining and intermediate chemicals (stages = “Refined” and “Base Chemical”) to first‑tier end‑product families (stage = “Product”), including at least one and up to two product codes per branch.  
+            - If the input is a higher‑level component (e.g. “Photoresist Polymers”), reverse‑trace from its HS‑6 code down through its base chemicals to raw feedstocks and trace forward to its first‑tier end‑product families.  
+            - Include a maximum of 6 levels of nodes,
+            - Ensure that all materials are traced to their raw/base forms, adding any missing base chemicals, refined materials, or mined materials HS Codes that are not already in the graph and are required to support any refined, base chemicals, or products in the graph.
+            - Exclude any obsolete HS codes that are not part of HS-6 (i.e. “HS-2022”). Exclude any nodes that are not 6 digit HS codes.
+            - Each **node** must be an object with:
+                **id**: the 6‑digit HS code  
+                **material**: the common name  
+                **description**: The published H6 description of **id**
+                **stage**: one of “Mined”, “Refined”, “Base Chemical”, “Product”  
+            - Each **edge** must be an object with:
+                **source**: the parent node’s HS code  
+                **target**: the child node’s HS code  
+                **process**:  <= 20 words description of the transformation or manufacturing step  
+                **references**: List of URLs to sources describing the process.  There should be a minimum of two references from two different domains for each edge. 
+            - Ensure no duplicate HS codes appear.  
+            - When an HS Code represents multiple materials, do not split them into separate nodes.  Use the HS-6 code brief description to determine the material name.  If sub-materials are important to a process, the sub-materials may be clarified in the process description. 
+            - Output **only** a single JSON object with two arrays:  
+            - You have the following tools available to you which you can use to help build the network:
+                * wikipedia-mcp: Search and retrieve article,topics, and relations from Wikipedia regarding the materials.
+                * semantic_hs_query: Search for H6 codes using semantic search.
+                * search: Search the web for information about the material and its value-added chain.
+                * fetch_content: Retrieve information from the web by url                
+ 
                 
             Return JSON with this structure:
 
             {
                 "nodes": [
-                    { "id": "HS6", "material": "<concise material description>", "stage": "<Mining|Refinery|Base chemical|Component|Finished product|Recycling|Other>", "description": "<HS 2022 description>" },
+                    { "id": "HS6", "material": "<concise material description>", "stage": "<Mining|Refinery|Base chemical|product|Recycling>", "description": "<HS 2022 description>" },
                     …
                 ],
                 "links": [
@@ -152,21 +160,22 @@ async def get_raw_material_network(material: str, options: GenerateSupplyChainNe
         - Check each link.process for specificity and technical accuracy.  
         - Recommend more precise terminology or missing steps where needed.
         - Verify source and target are in the correct order (i.e., target depends on source).  If not, reverse them.
+        - Ensure that the references are valid and points to a relevant source that describes the process. There should be a minimum of two references from two different sources for each edge. If there are not enough references, recommend adding more. 
+        - Ensure that each reference comes from a different domain. For example, if the first reference is from wikipedia, there should be at least one more link that is not from wikipedia.  
 
         4. **No duplicates or extra fields**  
-        - Confirm there are no duplicate HS codes.  
+        - Confirm there are no duplicate HS codes. 
+        - Exclude any nodes that are not 6 digit HS codes.
         - Ensure every node has exactly id, material, description, stage; every edge has source, target, process.
         - Do not recommend differentiating nodes by appending a suffix (e.g., '281000-ore' or '281000-acid'). If sub-materials are important to a process, the sub-materials may be clarified in the process description when important.
 
-        You have the following tools available to you which you can use to help build the network:
-            mcp_server_wikipedia: Search for Wikipedia articles to discover the various forms and stages of the material.
-            query_hscodes: Search for H6 codes using sql.
-            
-        When you use query_hscodes tool, follow these rules:
-            - Before calling query_hscodes, think step-by-step and write a numbered list of the queries you will need.  This should not exceed 3 queries.
-            - After you produce the list, execute the queries in that order.
-            - Never call `query_hscodes` more than 3 times per pass.
+        - You have the following tools available to you which you can use to help build the network:
+            * wikipedia-mcp: Search and retrieve article,topics, and relations from Wikipedia regarding the materials.
+            * search: Search the web for information about the material and its value-added chain.
+            * fetch_content: Retrieve information from the web by url                
+            * semantic_hs_query: Search for H6 codes using semantic search.
 
+            
         Output **ONLY** SuggestedChanges object that contains the following fields:
             - has_updates: boolean indicating if there are any recommendations for the base material list. If there are no recommendations, set this to False.    
             - recommendations: string containing the recommendations for the base material list if there are any. This field must exist if has_updates is True.
@@ -207,13 +216,12 @@ async def get_raw_material_network(material: str, options: GenerateSupplyChainNe
                 await asyncio.sleep(20)
                 return GetMaterialNetwork()
             except Exception as err:
-                if hasattr(err,'body') and err.body['code']=="rate_limit_exceeded":
+                print(f"Error in GetMaterialNetwork: {err}")
+                if getattr(err,'body',{}) and 'code' in err.body and err.body['code']=="rate_limit_exceeded":
                     print(f"Usage limit exceeded: {err}")
                     await asyncio.sleep(20)
                     return GetMaterialNetwork()
 
-                print(f"Error in GetMaterialNetwork: {err}")
-        
             return ReviewNetwork()  
     
     @dataclass
@@ -258,12 +266,7 @@ async def get_raw_material_network(material: str, options: GenerateSupplyChainNe
             # print(f"\n{result}")
             return result
 
-def serialize_material_network(network:DAG,filter_products:bool = True) -> str:
-    if (filter_products):
-        network.nodes = [node for node in network.nodes if node.stage != "Product"]
-        network.links = [link for link in network.links if link.target not in [node.id for node in network.nodes if node.stage == "Product"]]
-    # Remove duplicates
-    
+def serialize_material_network(network:DAG) -> str:
     return json.dumps({
         "nodes": [node.model_dump() for node in network.nodes],
         "links": [link.model_dump() for link in network.links]

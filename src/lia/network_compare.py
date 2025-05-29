@@ -30,10 +30,42 @@ import matplotlib as mpl  # type: ignore
 import matplotlib.pyplot as plt  # type: ignore
 import networkx as nx  # type: ignore
 import typer
+import textwrap,io
+from PIL import Image
 
 app = typer.Typer(add_completion=False)
 
 ALLOWED_STAGES: Set[str] = {"base chemical", "mined", "refined"}
+
+
+# ──────────────────────────────────────────────────────────────────────────────
+#  Static stage → color mapping  (consistent across runs)
+# ──────────────────────────────────────────────────────────────────────────────
+STAGE_COLORS = {
+    "mined":           "#1f77b4",
+    "base chemical":   "#ff7f0e",
+    "refined":         "#2ca02c",
+    "product":         "#d62728",
+    "recycling":       "#8c564b",
+    "other":           "#7f7f7f",
+}
+
+def _color_for_stage(stage: str) -> str:
+    return STAGE_COLORS.get(stage.lower(), STAGE_COLORS["other"])
+
+# ───────── layout helper (unchanged) ─────────
+def _layout(G: nx.Graph, name: str):
+    import math, random
+    name = name.lower()
+    if name == "spring":
+        k = 16.0 / math.sqrt(max(G.number_of_nodes(), 1))
+        return nx.spring_layout(G, k=k, seed=random.randrange(1 << 30), iterations=200)
+    if name == "kamada":   return nx.kamada_kawai_layout(G)
+    if name == "spectral": return nx.spectral_layout(G)
+    if name == "circular": return nx.circular_layout(G)
+    raise ValueError(f"unknown layout '{name}'")
+
+
 
 # ──────────────────────────────────────────────────────────────────────────────
 # I/O helpers
@@ -165,69 +197,6 @@ def rank(
     for i, (p, s) in enumerate(sorted(zip(files, scores), key=lambda kv: kv[1], reverse=True), 1):
         typer.echo(f"{i:2d}. {p.name}\t{s}")
 
-
-@app.command(name="visualize")
-def visualize(
-    files: List[Path] = typer.Argument(..., exists=True, dir_okay=False),
-    png: Path = typer.Option(Path("consensus.png"), "--png", help="PNG output file"),
-):
-    """Draw consensus graph with stage-colored nodes and visible arrowheads."""
-    graphs = [_load_graph(p) for p in files]
-    _, e_sup = _build_union_support(graphs)
-    if not e_sup:
-        typer.echo("[warning] No edges to visualize.")
-        raise typer.Exit()
-
-    # Build union graph (edge attribute “w” = support count)
-    G = nx.DiGraph([(u, v, {"w": s}) for (u, v), s in e_sup.items()])
-    for g in graphs:
-        G.add_nodes_from(g.nodes(data=True))   # keep stage metadata
-
-    # Stage → color mapping
-    stages = sorted({G.nodes[n].get("stage", "Other") for n in G.nodes()})
-    cmap = mpl.cm.get_cmap("tab10")
-    stage_color = {st: mpl.colors.to_hex(cmap(i % 10)) for i, st in enumerate(stages)}
-    node_colors = [stage_color[G.nodes[n].get("stage", "Other")] for n in G.nodes()]
-
-    pos = nx.spring_layout(G, seed=42)
-    node_size = 1400
-
-    fig, ax = plt.subplots(figsize=(12, 10))
-
-    # 1️⃣ draw nodes & labels (behind)
-    nx.draw_networkx_nodes(G, pos, ax=ax, node_size=node_size,
-                           node_color=node_colors, edgecolors="black")
-    nx.draw_networkx_labels(G, pos, ax=ax, font_size=10)
-
-    # 2️⃣ draw edges on top → arrowheads visible
-    weights = [d["w"] for _, _, d in G.edges(data=True)]
-    vmax = max(weights)
-    nx.draw_networkx_edges(
-        G, pos, ax=ax,
-        arrows=True, arrowstyle="-|>", arrowsize=28,
-        min_source_margin=15, min_target_margin=15,
-        width=[2 * w / vmax for w in weights],
-        edge_color=weights, edge_cmap=plt.cm.viridis,
-    )
-
-    # Stage legend at bottom
-    legend_handles = [mpl.patches.Patch(color=col, label=st)
-                      for st, col in stage_color.items()]
-    ax.legend(handles=legend_handles, title="Stage",
-              loc="upper center", bbox_to_anchor=(0.5, -0.08),
-              ncol=len(stages))
-
-    # Edge-support color-bar
-    sm = mpl.cm.ScalarMappable(cmap=plt.cm.viridis,
-                               norm=plt.Normalize(vmin=1, vmax=vmax))
-    sm.set_array([])
-    fig.colorbar(sm, ax=ax, label="Link support (count)")
-
-    ax.axis("off")
-    fig.savefig(png, dpi=300, bbox_inches="tight")
-    typer.echo(f"Saved {png}")
-
-
 @app.command("precision‑recall")
 def precision_recall(
     files: List[Path] = typer.Argument(..., exists=True, dir_okay=False),
@@ -262,6 +231,145 @@ def coverage(
     typer.echo("Node ID	count")
     for node, cnt in counts.most_common():
         typer.echo(f"{node}	{cnt}")
+        
+def _draw_graph(G: nx.DiGraph, pos, edge_weights=None) -> Image.Image:
+    """Return a Pillow Image containing the network plot (legend inside)."""
+    fig, ax = plt.subplots(figsize=(10, 8))
+
+    # node colours
+    node_colors = [_color_for_stage(G.nodes[n].get("stage", "other")) for n in G.nodes()]
+    nx.draw_networkx_nodes(G, pos, ax=ax,
+                           node_size=1400, node_color=node_colors,
+                           edgecolors="black")
+    nx.draw_networkx_labels(G, pos, ax=ax,
+                            labels={n: n for n in G.nodes()},
+                            font_size=9, font_color="white")
+
+    # material names outside node
+    cx = sum(x for x, _ in pos.values()) / len(pos)
+    cy = sum(y for _, y in pos.values()) / len(pos)
+    offset = 0.22
+    for n, (x, y) in pos.items():
+        dx, dy = x - cx, y - cy
+        norm = (dx*dx + dy*dy) ** 0.5 or 1
+        ax.text(x + dx/norm*offset, y + dy/norm*offset,
+                G.nodes[n].get("material", ""), fontsize=8,
+                ha="center", va="center")
+
+    # edges (support-coloured if weights supplied)
+    if edge_weights:
+        vmax = max(edge_weights)
+        nx.draw_networkx_edges(
+            G, pos, ax=ax, arrows=True, arrowstyle="-|>", arrowsize=24,
+            min_source_margin=15, min_target_margin=15,
+            width=[2*w/vmax for w in edge_weights],
+            edge_color=edge_weights, edge_cmap=plt.cm.viridis
+        )
+        sm = mpl.cm.ScalarMappable(cmap=plt.cm.viridis,
+                                   norm=plt.Normalize(vmin=1, vmax=vmax))
+        sm.set_array([])
+        fig.colorbar(sm, ax=ax, shrink=0.7,
+                     label="Link support (count)")
+    else:
+        nx.draw_networkx_edges(
+            G, pos, ax=ax, arrows=True, arrowstyle="-|>", arrowsize=24,
+            min_source_margin=15, min_target_margin=15,
+            width=2, edge_color="gray"
+        )
+
+    # legend
+    stages = sorted({G.nodes[n].get("stage", "other") for n in G.nodes()})
+    handles = [mpl.patches.Patch(color=_color_for_stage(s), label=s) for s in stages]
+    ax.legend(handles=handles, title="Stage",
+              loc="upper center", bbox_to_anchor=(0.5, -0.05),
+              ncol=len(stages))
+    ax.axis("off")
+
+    buf = io.BytesIO()
+    fig.savefig(buf, dpi=300, bbox_inches="tight")
+    plt.close(fig)
+    buf.seek(0)
+    return Image.open(buf)
+
+def _draw_table(G: nx.DiGraph) -> Image.Image:
+    """Return a Pillow Image containing the HS-code/material/description table."""
+    # wrap descriptions
+    wrap = lambda t: "\n".join(textwrap.wrap(t, width=40))
+    rows = [[n,
+             G.nodes[n].get("material", ""),
+             wrap(G.nodes[n].get("description", ""))]
+            for n in G.nodes()]
+
+    fig, ax = plt.subplots(figsize=(10, 2))   # width same as graph, height will auto
+    table = ax.table(cellText=rows,
+                     colLabels=["HS-6", "Material", "Description"],
+                     loc="center")
+    table.auto_set_font_size(False)
+    table.set_fontsize(7)
+    table.scale(1, 1.5)
+    ax.axis("off")
+
+    buf = io.BytesIO()
+    fig.savefig(buf, dpi=300, bbox_inches="tight")
+    plt.close(fig)
+    buf.seek(0)
+    return Image.open(buf)
+
+def _stitch_vertically(img_top: Image.Image, img_bottom: Image.Image) -> Image.Image:
+    """Return a new Pillow Image with *img_top* over *img_bottom*."""
+    width = max(img_top.width, img_bottom.width)
+    new_im = Image.new("RGB", (width, img_top.height + img_bottom.height), "white")
+    new_im.paste(img_top, (0, 0))
+    new_im.paste(img_bottom, (0, img_top.height))
+    return new_im
+
+# ────────────────────────────────────────────────────────────────────────────
+#                               SHOW  (single)
+# ────────────────────────────────────────────────────────────────────────────
+@app.command(name="show")
+def show(
+    file: Path = typer.Argument(..., exists=True, dir_okay=False),
+    png: Optional[Path] = typer.Option(None, "--png"),
+    layout: str = typer.Option("spring", "--layout", case_sensitive=False,
+                               help="spring | kamada | spectral | circular"),
+):
+    G = _load_graph(file)
+    if png is None:
+        png = file.with_suffix(".png")
+    pos = _layout(G, layout)
+
+    graph_img  = _draw_graph(G, pos)
+    table_img  = _draw_table(G)
+    final_img  = _stitch_vertically(graph_img, table_img)
+    final_img.save(png)
+    typer.echo(f"Saved {png}")
+
+# ────────────────────────────────────────────────────────────────────────────
+#                              VISUALIZE  (union)
+# ────────────────────────────────────────────────────────────────────────────
+@app.command(name="visualize")
+def visualize(
+    files: List[Path] = typer.Argument(..., exists=True, dir_okay=False),
+    png: Path = typer.Option(Path("consensus.png"), "--png"),
+    layout: str = typer.Option("spring", "--layout", case_sensitive=False,
+                               help="spring | kamada | spectral | circular"),
+):
+    graphs = [_load_graph(p) for p in files]
+    _, e_sup = _build_union_support(graphs)
+    if not e_sup:
+        typer.echo("[warning] No edges to visualize."); raise typer.Exit()
+
+    G = nx.DiGraph([(u, v, {"w": s}) for (u, v), s in e_sup.items()])
+    for g in graphs: G.add_nodes_from(g.nodes(data=True))
+    edge_weights = [d["w"] for _, _, d in G.edges(data=True)]
+    pos = _layout(G, layout)
+
+    graph_img  = _draw_graph(G, pos, edge_weights=edge_weights)
+    table_img  = _draw_table(G)
+    final_img  = _stitch_vertically(graph_img, table_img)
+    final_img.save(png)
+    typer.echo(f"Saved {png}")
+
         
 if __name__ == "__main__":
     app()
