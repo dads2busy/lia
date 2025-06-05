@@ -1,0 +1,218 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <title>Supply Chain Network – {{ filename }}</title>
+  <script src="https://cdn.jsdelivr.net/npm/vis-network@9.1.2/dist/vis-network.min.js"></script>
+  <link href="https://cdn.jsdelivr.net/npm/vis-network@9.1.2/dist/vis-network.min.css" rel="stylesheet">
+  <style>
+    html, body { height: 100%; margin: 0; font-family: sans-serif; }
+    #topbar { background: #f0f0f0; padding: 10px; display: flex; justify-content: space-between; align-items: center; }
+    #controls { display: flex; gap: 10px; align-items: center; }
+    #network-container { height: 75vh; display: flex; position: relative; }
+    #network { flex: 3; border-right: 1px solid #ddd; position: relative; z-index: 1; }
+    #details { flex: 1; overflow-y: auto; padding: 1em; background: #fafafa; }
+    #node-table { width: 100%; border-collapse: collapse; margin-top: 1em; }
+    #node-table th, #node-table td { padding: 6px 10px; border: 1px solid #ccc; text-align: left; }
+    .selected-row { background-color: #ffecb3; }
+    .hovered-row { background-color: #e0f7fa; }
+    .legend { display: flex; gap: 10px; margin-top: 10px; margin-bottom: 10px; flex-wrap: wrap; }
+    .legend span { display: inline-block; padding: 4px 8px; border-radius: 3px; color: #fff; font-size: 0.9em; }
+    .detail-entry { margin-bottom: 10px; }
+    .detail-entry strong { color: #333; }
+    .edge-ref { font-size: 0.85em; margin-left: 10px; display: block; }
+    .hover-highlight { border: 3px solid yellow !important; size: 20; }
+    .hover-label:hover { cursor: pointer; color: #0072B2; text-decoration: underline; }
+  </style>
+</head>
+<body>
+  <div id="topbar">
+    <h2>{{ filename }}</h2>
+    <div id="controls">
+      <button onclick="downloadSVG()">Download SVG</button>
+      <button onclick="downloadPNG()">Download PNG</button>
+    </div>
+  </div>
+  <div class="legend" id="legend"></div>
+  <div id="network-container">
+    <div id="network"></div>
+    <div id="details">
+      <h3 id="details-header">Node Details</h3>
+      <div id="node-details"></div>
+      <div id="edge-incoming"></div>
+      <div id="edge-outgoing"></div>
+    </div>
+  </div>
+  <table id="node-table">
+    <thead><tr><th>ID</th><th>Material</th><th>Stage</th></tr></thead>
+    <tbody id="node-table-body"></tbody>
+  </table>
+
+  <script>
+    const data = {{ network_data | tojson | safe }};
+    const stageColors = {
+      "Mined": "#0072B2",
+      "Intermediate": "#009E73",
+      "Product": "#D55E00",
+      "Assembly": "#E69F00",
+      "Recycled": "#AA4499",
+      "Other": "#999999"
+    };
+
+    const nodes = new vis.DataSet(data.nodes.map(n => {
+      const stage = (n.stage || 'Other').toLowerCase();
+      const capStage = stage.charAt(0).toUpperCase() + stage.slice(1);
+      return {
+        id: n.id,
+        label: n.id,
+        title: n.material,
+        shape: 'circle',
+        color: stageColors[capStage] || stageColors['Other'],
+        font: { color: '#fff', size: 14, vadjust: -10 },
+        size: 14,
+        ...n
+      }
+    }));
+
+    const edges = new vis.DataSet((data.links || []).flatMap((link, index) => {
+      const sources = Array.isArray(link.source) ? link.source : [link.source];
+      const targets = Array.isArray(link.target) ? link.target : [link.target];
+      return sources.flatMap(src => targets.map(tgt => ({
+        id: `e${index}-${src}-${tgt}`,
+        from: src,
+        to: tgt,
+        arrows: 'to',
+        width: typeof link.score === 'number' ? (1 + link.score * 4) : 1,
+        smooth: false,
+        raw: link
+      })));
+    }));
+
+    const container = document.getElementById('network');
+    const network = new vis.Network(container, { nodes, edges }, {
+      nodes: { shape: 'circle', font: { size: 12 }, margin: 10 },
+      edges: { font: { align: 'middle' }, smooth: false },
+      physics: {
+        enabled: true,
+        barnesHut: {
+          gravitationalConstant: -30000,
+          centralGravity: 0.1,
+          springLength: 200,
+          springConstant: 0.05,
+          damping: 0.09,
+          avoidOverlap: 0.6
+        }
+      }
+    });
+
+    document.getElementById('legend').innerHTML = Object.entries(stageColors).map(([stage, color]) =>
+      `<span style="background-color: ${color}">${stage}</span>`
+    ).join('');
+
+    const tableBody = document.getElementById('node-table-body');
+    data.nodes.forEach(n => {
+      const row = document.createElement('tr');
+      row.dataset.id = n.id;
+      const stage = (n.stage || 'Other').toLowerCase();
+      const capStage = stage.charAt(0).toUpperCase() + stage.slice(1);
+      row.innerHTML = `<td>${n.id}</td><td>${n.material}</td><td>${capStage}</td>`;
+      row.onclick = () => selectNode(n.id);
+      row.onmouseenter = () => hoverNode(n.id, true);
+      row.onmouseleave = () => hoverNode(n.id, false);
+      tableBody.appendChild(row);
+    });
+
+    function highlightTableRow(nodeId, add=true) {
+      document.querySelectorAll('#node-table-body tr').forEach(row => {
+        if (row.dataset.id === nodeId) {
+          if (add) row.classList.add('hovered-row');
+          else row.classList.remove('hovered-row');
+        }
+      });
+    }
+
+    function hoverNode(nodeId, enter=true) {
+      if (enter) {
+        highlightTableRow(nodeId, true);
+        nodes.update({ id: nodeId, borderWidth: 3, color: { border: 'yellow' }, size: 25 });
+      } else {
+        highlightTableRow(nodeId, false);
+        const node = nodes.get(nodeId);
+        const stage = (node.stage || 'Other').toLowerCase();
+        const capStage = stage.charAt(0).toUpperCase() + stage.slice(1);
+        nodes.update({ id: nodeId, borderWidth: 1, color: { border: stageColors[capStage] }, size: 14 });
+      }
+    }
+
+    function renderNodeHoverLabel(id, material) {
+      return `<span class='hover-label' onmouseover="hoverNode('${id}', true)" onmouseout="hoverNode('${id}', false)" title="${material}">${id}</span>`;
+    }
+
+    function selectNode(nodeId) {
+      network.selectNodes([nodeId]);
+      edges.update(edges.get().map(e => ({ id: e.id, color: { color: '#848484' } })));
+      document.querySelectorAll('#node-table-body tr').forEach(row => {
+        row.classList.toggle('selected-row', row.dataset.id === nodeId);
+      });
+
+      const node = nodes.get(nodeId);
+      const incoming = edges.get().filter(e => e.to === nodeId);
+      const outgoing = edges.get().filter(e => e.from === nodeId);
+
+      document.getElementById('details-header').innerText = 'Node Details';
+      document.getElementById('node-details').innerHTML = `
+        <div class='detail-entry'><strong>ID:</strong> ${renderNodeHoverLabel(node.id, node.material)}</div>
+        <div class='detail-entry'><strong>Material:</strong> ${node.material}</div>
+        <div class='detail-entry'><strong>Stage:</strong> ${node.stage}</div>
+        <div class='detail-entry'><strong>Description:</strong> ${node.description}</div>`;
+
+      document.getElementById('edge-incoming').innerHTML = incoming.length ? `<h4>Incoming Edges</h4>` + incoming.map(e => renderEdgeDetail(e.raw, nodeId)).join('') : '';
+      document.getElementById('edge-outgoing').innerHTML = outgoing.length ? `<h4>Outgoing Edges</h4>` + outgoing.map(e => renderEdgeDetail(e.raw, nodeId)).join('') : '';
+    }
+
+    function renderEdgeDetail(raw, nodeId) {
+      const sources = Array.isArray(raw.source) ? raw.source : [raw.source];
+      const targets = Array.isArray(raw.target) ? raw.target : [raw.target];
+      const isOutgoing = sources.includes(nodeId);
+      const label = `<strong>${sources.map(s => s === nodeId ? `<b>${renderNodeHoverLabel(s, nodes.get(s)?.material)}</b>` : renderNodeHoverLabel(s, nodes.get(s)?.material)).join(', ')} → ${targets.map(t => t === nodeId ? `<b>${renderNodeHoverLabel(t, nodes.get(t)?.material)}</b>` : renderNodeHoverLabel(t, nodes.get(t)?.material)).join(', ')}</strong>`;
+      const process = Array.isArray(raw.process) ? raw.process.join('; ') : raw.process;
+      const references = (raw.references || []).map(ref => `<a href="${ref}" target="_blank" class="edge-ref">${ref}</a>`).join('');
+      return `<div class='detail-entry'>${label}<br>${process}<br>${references}</div>`;
+    }
+
+    network.on('click', function(params) {
+      if (params.nodes.length) {
+        selectNode(params.nodes[0]);
+      } else if (params.edges.length) {
+        const edge = edges.get(params.edges[0]);
+        const raw = edge.raw;
+        const sources = Array.isArray(raw.source) ? raw.source : [raw.source];
+        const targets = Array.isArray(raw.target) ? raw.target : [raw.target];
+        const relatedEdges = edges.get().filter(e => {
+          const r = e.raw;
+          const s = Array.isArray(r.source) ? r.source : [r.source];
+          const t = Array.isArray(r.target) ? r.target : [r.target];
+          return JSON.stringify(s) === JSON.stringify(sources) && JSON.stringify(t) === JSON.stringify(targets);
+        });
+        const relatedNodes = [...new Set([...sources, ...targets])];
+        network.selectEdges(relatedEdges.map(e => e.id));
+        network.selectNodes(relatedNodes);
+        edges.update(edges.get().map(e => ({ id: e.id, color: { color: relatedEdges.some(re => re.id === e.id) ? 'red' : '#848484' } })));
+
+        const targetNode = nodes.get(targets[0]);
+        document.getElementById('details-header').innerText = 'Edge Details';
+        document.getElementById('node-details').innerHTML = `
+          <div class='detail-entry'><strong>Description:</strong> ${Array.isArray(raw.process) ? raw.process.join('; ') : raw.process}</div>
+          <div class='detail-entry'><strong>Target:</strong> ${renderNodeHoverLabel(targets[0], targetNode?.material || '')} — ${targetNode ? targetNode.material : ''}</div>
+          <div class='detail-entry'><strong>Sources:</strong><ul>${sources.map(s => {
+            const sn = nodes.get(s);
+            return `<li>${renderNodeHoverLabel(s, sn?.material || '')} — ${sn ? sn.material : ''}</li>`;
+          }).join('')}</ul></div>
+        `;
+        document.getElementById('edge-incoming').innerText = '';
+        document.getElementById('edge-outgoing').innerText = '';
+      }
+    });
+  </script>
+</body>
+</html>

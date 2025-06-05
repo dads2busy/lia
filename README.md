@@ -71,6 +71,49 @@ The objective is provided to them by the leader and then they engage in discussi
 The Reaoner is similar to the Automoteam, except that it has a fixed size team with a different set of prompts.  In this case it is setup as a left brain/right brain agents interacting with the leader.
 The left brain/right brain are told they are representing the left or right hemisphere, but mainly their difference is that the left brain is given a low temperature when when submitting to the model and the right brain is given a high temperature when submitting.
 
+### Generate Material Network
+This is the bottom-up network generator.  
+
+It depends on an externally run mcp server (locally running) for the HS Code resolution.  You can launch that tool like this:
+```cd src/lia; python tools/mcp-server-hscode-vector-rollupmd.py```
+
+Note: This mcp server is currently expecting to run on Rivanna to have access to /sfs/gpfs/tardis/project/bi_dpi/data/UN_Comtrade/H6_rollup.md.  To run locally, make sure the file is available locally and then run it the mcp server with ```--file /path/to/H6_rollup.md```.
+
+Once the mcp server is running (and says that it is listening, it will take a couple mins), you can launch the generator:
+
+```lia generate-material-network -o output.json -m gpt-4.1-mini --llm-api-key $OAIKEY "boron"```
+
+Options:
+```
+$ lia generate-material-network --help
+                                                                                                
+ Usage: lia generate-material-network [OPTIONS] MATERIAL...                                     
+                                                                                                
+ Start the Material Network Generator                                                           
+                                                                                                
+                                                                                                
+╭─ Arguments ──────────────────────────────────────────────────────────────────────────────────╮
+│ *    material      MATERIAL...  [default: None] [required]                                   │
+╰──────────────────────────────────────────────────────────────────────────────────────────────╯
+╭─ Options ────────────────────────────────────────────────────────────────────────────────────╮
+│ --output         -o      TEXT     Output file.  If not provided, output stdout               │
+│                                   [default: None]                                            │
+│ --prelim-only    -P               Only perform the preliminary analysis, no network          │
+│                                   generation                                                 │
+│ --prelim-out     -p      TEXT     Output for Preliminary Research. Do not save if not        │
+│                                   provided.                                                  │
+│                                   [default: None]                                            │
+│ --prelim-in      -i      TEXT     Input for Preliminary Research. Uses this data as the      │
+│                                   starting point.                                            │
+│                                   [default: None]                                            │
+│ --prelim-rounds          INTEGER  Number of preliminary research rounds [default: 3]         │
+│ --model          -m      TEXT     Default Base Model Name [default: llama3.3]                │
+│ --llm-api-url    -u      TEXT     URL to LLM API [default: None]                             │
+│ --llm-api-key    -k      TEXT     API Key if needed for LLM [default: None]                  │
+│ --help                            Show this message and exit.                                │
+╰──────────────────────────────────────────────────────────────────────────────────────────────╯
+```
+
 ### Tools
 There are a few tools in here, most have only recently been developed and are not fully deployed throughout all of the subsystems of lia.
 - Python execution tool

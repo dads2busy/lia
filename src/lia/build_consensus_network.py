@@ -1,220 +1,188 @@
-"""consensus_generator.py
-Build a robust consensus DAG from 7-10 independently generated JSON networks.
+"""consensus_generator.py  — hyper-edge consensus builder (JSON + TSV only)
 
-Run
----
-python consensus_generator.py run1.json run2.json ... runN.json \
-    --out consensus.json \
-    --disagreements flagged.tsv
+Creates a consensus hyper-DAG from two or more run JSON files.
 
-Key features
-------------
-* Drops orphaned nodes.
-* Keeps dominant (`majority`) `stage`, `material`, `description` per node and
-  flags `stage_consistent = False` when runs disagree on stage.
-* Edge attribute `process` becomes a list of unique transformation strings.
-* Adjustable support thresholds (node/edge) via CLI switches.
-* **Disagreements TSV** now provides context: majority value and minority
-  variants so experts can quickly see what differed.
+Output
+------
+• <out>.json      consensus graph (nodes + edges)
+• <out>.disagree  TSV of low-support / inconsistent items
+• console summary
+
+Edge format in all files:
+    {"source": [...], "target": "<HS-code>", ...}
 """
-from __future__ import annotations
 
-import json
+from __future__ import annotations
+import itertools, io, json, math, textwrap
 from collections import Counter, defaultdict
 from pathlib import Path
 from typing import Dict, List, Tuple, Optional
 
 import typer
-import networkx as nx
 
 app = typer.Typer(add_completion=False, invoke_without_command=True)
 
-# ───────────────────────── I/O helper ──────────────────────────
-
-def _load_graph(path: Path) -> nx.DiGraph:
+# ──────────────────────────── JSON I/O ────────────────────────────
+def _load_run(path: Path):
+    """Return (nodes, edges) where edges use (tuple(source_list), target_str)."""
     data = json.loads(path.read_text())
     if not {"nodes", "links"} <= data.keys():
-        typer.echo(f"[error] {path} missing 'nodes' or 'links'", err=True)
-        raise typer.Exit(1)
+        raise typer.Exit(code=1, message=f"[error] {path} missing 'nodes' or 'links'")
 
-    G = nx.DiGraph()
-    for n in data["nodes"]:
-        G.add_node(n["id"], **{k: v for k, v in n.items() if k != "id"})
+    nodes = {n["id"]: {k: v for k, v in n.items() if k != "id"} for n in data["nodes"]}
+    edges = []
     for e in data["links"]:
-        G.add_edge(
-            e["source"],
-            e["target"],
-            **{k: v for k, v in e.items() if k not in {"source", "target"}},
+        src = tuple(sorted(e.get("sources") or e.get("source") or []))
+        tgt = e.get("target") or (e.get("targets")[0] if e.get("targets") else "")
+        if not src or not tgt:
+            continue
+        refs = e.get("references") or e.get("reference") or []
+        if isinstance(refs, str):
+            refs = [refs]
+        edges.append(
+            {"source": src, "target": tgt, "process": e.get("process", ""), "references": refs}
         )
-    return G
+    return nodes, edges
 
-# ───────────────────── Consensus helpers ──────────────────────
+# ─────────────────── Support aggregation / majority ──────────────────
+def _collect_support(runs):
+    n_sup, e_sup = Counter(), Counter()
+    n_stage, n_mat, n_desc = defaultdict(list), defaultdict(list), defaultdict(list)
+    e_proc, e_refs = defaultdict(list), defaultdict(list)
 
-def _collect_support_and_attrs(graphs: List[nx.DiGraph]):
-    """Gather support counts and raw attribute lists."""
-    n_sup: Dict[str, int] = Counter()
-    e_sup: Dict[Tuple[str, str], int] = Counter()
-
-    n_stages: Dict[str, List[str]] = defaultdict(list)
-    n_mats: Dict[str, List[str]] = defaultdict(list)
-    n_desc: Dict[str, List[str]] = defaultdict(list)
-    e_proc: Dict[Tuple[str, str], List[str]] = defaultdict(list)
-
-    for G in graphs:
-        for nid, d in G.nodes(data=True):
+    for nodes, edges in runs:
+        for nid, attrs in nodes.items():
             n_sup[nid] += 1
-            n_stages[nid].append(d.get("stage", ""))
-            n_mats[nid].append(d.get("material", ""))
-            n_desc[nid].append(d.get("description", ""))
-        for u, v, d in G.edges(data=True):
-            e_sup[(u, v)] += 1
-            if d.get("process"):
-                e_proc[(u, v)].append(d["process"])
-    return n_sup, e_sup, n_stages, n_mats, n_desc, e_proc
+            n_stage[nid].append(attrs.get("stage", ""))
+            n_mat[nid].append(attrs.get("material", ""))
+            n_desc[nid].append(attrs.get("description", ""))
+        for ed in edges:
+            key = (ed["source"], ed["target"])
+            e_sup[key] += 1
+            if ed["process"]:
+                e_proc[key].append(ed["process"])
+            e_refs[key].extend(ed["references"])
+    return n_sup, n_stage, n_mat, n_desc, e_sup, e_proc, e_refs
 
+_majority = lambda vals: Counter([v for v in vals if v]).most_common(1)[0][0] if vals else ""
 
-def _majority(values: List[str]) -> str:
-    values = [v for v in values if v]
-    return Counter(values).most_common(1)[0][0] if values else ""
+# ───────────────────────── Consensus build ─────────────────────────
+def _build_consensus(runs, min_node: int, min_edge: int):
+    n_sup, n_stage, n_mat, n_desc, e_sup, e_proc, e_refs = _collect_support(runs)
 
+    # identify leaves (no incoming OR no outgoing in aggregated edges)
+    incoming, outgoing = defaultdict(int), defaultdict(int)
+    for srcs, tgt in e_sup.keys():
+        for s in srcs:
+            outgoing[s] += 1
+        incoming[tgt] += 1
+    leaves = {n for n in set(incoming) | set(outgoing) if incoming[n] == 0 or outgoing[n] == 0}
 
-def _consensus_graph(graphs: List[nx.DiGraph], min_node: int, min_edge: int):
-    (
-        n_sup,
-        e_sup,
-        n_stages,
-        n_mats,
-        n_desc,
-        e_proc,
-    ) = _collect_support_and_attrs(graphs)
+    kept_nodes = {nid for nid, cnt in n_sup.items() if cnt >= min_node or nid in leaves}
 
-    C = nx.DiGraph()
+    nodes_out = [
+        {
+            "id": nid,
+            "support": n_sup[nid],
+            "stage": _majority(n_stage[nid]),
+            "material": _majority(n_mat[nid]),
+            "description": _majority(n_desc[nid]),
+            "stage_consistent": len({s.lower() for s in n_stage[nid] if s}) == 1,
+        }
+        for nid in kept_nodes
+    ]
+    maj_material = {n["id"]: n["material"] for n in nodes_out}
 
-    # nodes
-    for n, cnt in n_sup.items():
-        if cnt >= min_node:
-            stages = n_stages[n]
-            stage_consistent = len(set(s.lower() for s in stages if s)) == 1
-            C.add_node(
-                n,
-                support=cnt,
-                stage=_majority(stages),
-                material=_majority(n_mats[n]),
-                description=_majority(n_desc[n]),
-                stage_consistent=stage_consistent,
+    edges_out = []
+    for (src, tgt), cnt in e_sup.items():
+        if cnt < min_edge:
+            continue
+        if not (all(n in kept_nodes for n in src) and tgt in kept_nodes):
+            continue
+        mats = {maj_material[n] for n in src + (tgt,) if maj_material[n]}
+        if len(mats) < 2:
+            continue
+        edges_out.append(
+            {
+                "source": list(src),
+                "target": tgt,
+                "support": cnt,
+                "process": sorted(set(e_proc[(src, tgt)])),
+                "references": sorted(set(e_refs[(src, tgt)])),
+            }
+        )
+
+    # drop orphan nodes
+    incident = set(itertools.chain(*[e["source"] + [e["target"]] for e in edges_out]))
+    nodes_out = [n for n in nodes_out if n["id"] in incident]
+
+    return nodes_out, edges_out, n_sup, e_sup, n_stage, n_mat, e_proc
+
+# ───────────────────── Disagreement row generator ───────────────────
+def _disagreement_rows(n_sup, e_sup, n_stage, n_mat, e_proc, thresh):
+    for nid, cnt in n_sup.items():
+        if cnt < thresh:
+            yield (
+                "node", nid, cnt,
+                _majority(n_stage[nid]),
+                ";".join(f"{s}:{c}" for s, c in Counter(n_stage[nid]).items()),
+                _majority(n_mat[nid]),
+                ";".join(f"{m}:{c}" for m, c in Counter(n_mat[nid]).items()),
+            )
+    for (src, tgt), cnt in e_sup.items():
+        if cnt < thresh:
+            procs = e_proc[(src, tgt)]
+            yield (
+                "edge", "+".join(src)+"->"+tgt, cnt,
+                _majority(procs),
+                ";".join(f"{p}:{c}" for p, c in Counter(procs).items()),
+                "", "",
             )
 
-    # edges
-    for (u, v), cnt in e_sup.items():
-        if cnt >= min_edge and u in C and v in C:
-            C.add_edge(u, v, support=cnt, process=sorted(set(e_proc[(u, v)])))
-
-    # drop orphaned nodes
-    C.remove_nodes_from([n for n in C if C.degree(n) == 0])
-
-    return C, n_sup, e_sup, n_stages, n_mats, n_desc, e_proc
-
-# disagreement rows -----------------------------------------------------------
-
-def _disagreement_rows(
-    n_sup, e_sup, n_stages, n_mats, e_proc, threshold: int
-):
-    """Yield detailed rows for TSV."""
-    # nodes first
-    for nid, cnt in n_sup.items():
-        if cnt >= threshold:
-            continue
-        stages = n_stages[nid]
-        mats = n_mats[nid]
-        maj_stage = _majority(stages)
-        maj_mat = _majority(mats)
-        stage_counts = Counter(s for s in stages if s)
-        mat_counts = Counter(m for m in mats if m)
-        stage_variants = ";".join(f"{s}:{c}" for s, c in stage_counts.items())
-        mat_variants = ";".join(f"{m}:{c}" for m, c in mat_counts.items())
-        yield (
-            "node",
-            nid,
-            cnt,
-            maj_stage,
-            stage_variants,
-            maj_mat,
-            mat_variants,
-        )
-    # edges
-    for (u, v), cnt in e_sup.items():
-        if cnt >= threshold:
-            continue
-        procs = e_proc[(u, v)]
-        maj_proc = _majority(procs)
-        proc_counts = Counter(p for p in procs if p)
-        proc_variants = ";".join(f"{p}:{c}" for p, c in proc_counts.items())
-        yield (
-            "edge",
-            f"{u}->{v}",
-            cnt,
-            maj_proc,
-            proc_variants,
-            "",
-            "",
-        )
-
-# ─────────────────────────┐ CLI build (default) ─────────────────────────────
+# ───────────────────────────── CLI build ────────────────────────────
 @app.callback()
 def build(
     ctx: typer.Context,
-    files: List[Path] = typer.Argument(..., exists=True, dir_okay=False, help="Run JSONs to combine"),
-    out: Path = typer.Option(Path("consensus.json"), "--out", help="Output consensus JSON"),
-    disagreements: Optional[Path] = typer.Option(None, "--disagreements", help="Write TSV of low-support/variant elements"),
+    files: List[Path] = typer.Argument(..., exists=True),
+    out: Path = typer.Option(Path("consensus.json"), "--out"),
+    disagreements: Optional[Path] = typer.Option(None, "--disagreements"),
     min_node_support: int = typer.Option(3, "--min-node-support"),
     min_edge_support: int = typer.Option(3, "--min-edge-support"),
     review_threshold: int = typer.Option(2, "--review-threshold"),
 ):
-    """Build consensus DAG from multiple run JSONs (default command)."""
-    graphs = [_load_graph(p) for p in files]
-    if len(graphs) < 2:
-        typer.echo("[error] Need at least two run files.", err=True)
-        raise typer.Exit(1)
+    runs = [_load_run(p) for p in files]
+    if len(runs) < 2:
+        raise typer.Exit(code=1, message="[error] Need at least two run files.")
 
-    (
-        C,
-        n_sup,
-        e_sup,
-        n_stages,
-        n_mats,
-        n_desc,
-        e_proc,
-    ) = _consensus_graph(graphs, min_node_support, min_edge_support)
+    nodes_out, edges_out, n_sup, e_sup, n_stage, n_mat, e_proc = _build_consensus(
+        runs, min_node_support, min_edge_support
+    )
 
-    out.write_text(json.dumps({
-        "nodes": [{"id": n, **C.nodes[n]} for n in C.nodes()],
-        "links": [{"source": u, "target": v, **C.edges[u, v]} for u, v in C.edges()],
-    }, indent=2))
-    typer.echo(f"Consensus written to {out}")
+    # consensus JSON
+    out.write_text(json.dumps({"nodes": nodes_out, "links": edges_out}, indent=2))
+    typer.echo(f"Consensus JSON → {out}")
 
-    # disagreements TSV with context
-    if disagreements:
-        with disagreements.open("w") as fh:
-            fh.write("type\tid\tsupport\tmajority_stage_or_process\tvariants\tmajority_material\tmaterial_variants\n")
-            for row in _disagreement_rows(
-                n_sup, e_sup, n_stages, n_mats, e_proc, review_threshold
-            ):
-                fh.write("\t".join(map(str, row)) + "\n")
-        typer.echo(f"Disagreements logged to {disagreements}")
+    # disagreements TSV
+    dis_file = disagreements or out.with_suffix(".disagree")
+    with dis_file.open("w") as fh:
+        fh.write("type\tid\tsupport\tmajority_stage_or_process\tvariants\tmajority_material\tmaterial_variants\n")
+        for row in _disagreement_rows(n_sup, e_sup, n_stage, n_mat, e_proc, review_threshold):
+            fh.write("\t".join(map(str, row)) + "\n")
+    typer.echo(f"Disagreements  → {dis_file}")
 
     # summary
-    total_nodes = len(set().union(*(g.nodes() for g in graphs)))
-    total_edges = len(set().union(*(g.edges() for g in graphs)))
-    typer.echo("\nSummary")
-    typer.echo("-------")
-    typer.echo(f"Runs provided: {len(graphs)}")
-    typer.echo(f"Total unique nodes across runs: {total_nodes}")
-    typer.echo(f"Total unique edges across runs: {total_edges}")
-    typer.echo(f"Nodes kept in consensus: {C.number_of_nodes()}")
-    typer.echo(f"Edges kept in consensus: {C.number_of_edges()}")
-    low_n = sum(1 for c in n_sup.values() if c < review_threshold)
-    low_e = sum(1 for c in e_sup.values() if c < review_threshold)
-    typer.echo(f"Elements flagged for review: {low_n} nodes, {low_e} edges")
+    typer.echo("\nSummary\n-------")
+    typer.echo(f"Runs provided: {len(runs)}")
+    typer.echo(f"Unique nodes  : {len(n_sup)}")
+    typer.echo(f"Unique edges  : {len(e_sup)}")
+    typer.echo(f"Nodes kept    : {len(nodes_out)}   (leaf nodes exempt from threshold)")
+    typer.echo(f"Edges kept    : {len(edges_out)}")
+    typer.echo(
+        f"Flagged for review (<{review_threshold} support): "
+        f"{sum(1 for c in n_sup.values() if c < review_threshold)} nodes, "
+        f"{sum(1 for c in e_sup.values() if c < review_threshold)} edges"
+    )
 
+# ────────────────────────── main entry point ───────────────────────
 if __name__ == "__main__":
     app()

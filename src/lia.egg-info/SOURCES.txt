@@ -4,7 +4,9 @@ src/lia/__init__.py
 src/lia/agent_swarm.py
 src/lia/analysis_context.py
 src/lia/ateam.py
+src/lia/build_consensus_network.py
 src/lia/cli.py
+src/lia/filter_networks.py
 src/lia/lia.py
 src/lia/network_compare.py
 src/lia/new_supply_chain_network_generator.py
@@ -12,6 +14,7 @@ src/lia/raw_material_for_tech.py
 src/lia/raw_material_network_generator.py
 src/lia/reasoner.py
 src/lia/supply_chain_network_generator.py
+src/lia/visualize_network.py
 src/lia.egg-info/PKG-INFO
 src/lia.egg-info/SOURCES.txt
 src/lia.egg-info/dependency_links.txt
@@ -42,6 +45,17 @@ src/lia/agent/supply_chain_agent/__init__.py
 src/lia/agent/supply_chain_agent/supply_chain_agent.py
 src/lia/agent/trade_supply_agent/__init__.py
 src/lia/agent/trade_supply_agent/trade_supply_agent.py
+src/lia/system_prompts/__init__.py
+src/lia/system_prompts/network_agent_system_prompt.py
+src/lia/system_prompts/preliminary_research_agent_prompt.py
+src/lia/system_prompts/reference_reviewer_system_prompt.py
+src/lia/system_prompts/reviewer_agent_system_prompt.py
 src/lia/tools/__init__.py
+src/lia/tools/mcp-server-duckb.py
+src/lia/tools/mcp-server-hscode-sql.py
+src/lia/tools/mcp-server-hscode-vector-from-json.py
+src/lia/tools/mcp-server-hscode-vector-rollupmd.py
+src/lia/tools/mcpcli.py
 src/lia/tools/python_execution_tool.py
+src/lia/tools/test_client.py
 tests/test_cli.py

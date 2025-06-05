@@ -23,7 +23,7 @@ CACHE_DIR.mkdir(exist_ok=True)
 
 class HSQueryInput(BaseModel):
     query: str
-    top_k: int = 5
+    top_k: int = 6
 
 
 class HSMatch(BaseModel):
@@ -102,6 +102,8 @@ def main():
                 score=float(dist)
             ))
 
+        print(f"Found {len(matches)} semantic matches", file=sys.stderr)
+        print("Matches:", matches, file=sys.stderr)
         return HSQueryOutput(matches=matches)
 
     mcp.run()

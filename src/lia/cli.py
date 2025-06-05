@@ -12,7 +12,7 @@ import os
 import json
 import asyncio
 from lia.supply_chain_network_generator import analyze_product, Product
-from lia.raw_material_network_generator import get_raw_material_network,GenerateSupplyChainNetworkOptions,serialize_material_network
+from lia.raw_material_network_generator import get_raw_material_network,GenerateSupplyChainNetworkOptions,serialize_material_network,PreliminaryResearch
 app = typer.Typer()
 
 class Options(BaseModel):
@@ -29,6 +29,10 @@ class Options(BaseModel):
 def generate_material_network (
     material: list[str],
     output: Annotated[str,None, typer.Option("--output", "-o", help="Output file.  If not provided, output stdout")] = None,
+    preliminary_only: Annotated[bool, typer.Option("--prelim-only", "-P", help="Only perform the preliminary analysis, no network generation")] = False,
+    preliminary_out: Annotated[str,None, typer.Option("--prelim-out", "-p", help="Output for Preliminary Research. Do not save if not provided.")] = None,
+    preliminary_in: Annotated[str,None, typer.Option("--prelim-in", "-i", help="Input for Preliminary Research. Uses this data as the starting point.")] = None,
+    preliminary_rounds: Annotated[int,None,typer.Option("--prelim-rounds",help="Number of preliminary research rounds")]=3,
     debug: Annotated[bool, typer.Option("--debug", "-d", help="Enable debugging output.")] = False,
     model:  Annotated[str, typer.Option("--model", "-m", help="Default Base Model Name")] = "llama3.3",
     llm_api_url: Annotated[str,None, typer.Option("--llm-api-url", "-u", help="URL to LLM API")] = None,
@@ -39,16 +43,54 @@ def generate_material_network (
     """
     material = ' '.join(material)
     print("Starting Material Network Generator")
-    options = GenerateSupplyChainNetworkOptions(debug=debug,model_name=model,llm_api_url=llm_api_url,llm_api_key=llm_api_key)
+    prelim_data = None
+    
+    if preliminary_in:
+        path = Path(preliminary_in)
+        if not path.exists():
+            raise FileNotFoundError(f"File not found: {path}")
+        
+        with path.open("r", encoding="utf-8") as f:
+            data = json.load(f)
+    
+            prelim_data = PreliminaryResearch(**data)
+    
+    options = GenerateSupplyChainNetworkOptions(debug=debug,model_name=model,llm_api_url=llm_api_url,llm_api_key=llm_api_key,preliminary_research_only=preliminary_only,preliminary_research_data=prelim_data,preliminary_research_rounds=preliminary_rounds)
     print(f"Material: {material}")
     print(f"Options:\n{options}")
     try: 
         results = asyncio.run(get_raw_material_network(material,options))
         # print(f"Results: {results.output}")
-        if output is not None:
-            with open(output, 'w') as f:
-                f.write(serialize_material_network(results.output))
-                f.close()
+        if results.output is not None:
+            if results.output.preliminary_research is not None:
+                print("Preliminary Research:")
+                research_dict = results.output.preliminary_research.dict()
+                if preliminary_out:
+                    with open(preliminary_out, 'w') as f:
+                        f.write(json.dumps(research_dict, indent=2))
+                        f.close()
+                        print(f"Wrote preliminary research data to {preliminary_out}")
+                else:
+                    print(json.dumps(research_dict, indent=2))
+            
+            print("Preliminary Research:")
+            if results.output.validated_research is not None:
+                print("Validated Research:")
+                research_dict = results.output.validated_research.dict()
+                print(json.dumps(research_dict, indent=2))
+                # if preliminary_out:
+                #     with open(preliminary_out, 'w') as f:
+                #         f.write(json.dumps(research_dict, indent=2))
+                #         f.close()
+                #         print(f"Wrote preliminary research data to {preliminary_out}")
+                # else:
+                #     print(json.dumps(research_dict, indent=2))
+               
+            if results.output.network is not None:
+                with open(output, 'w') as f:
+                    f.write(serialize_material_network(results.output))
+                    f.close()
+            
         else:
             print(results)
             
