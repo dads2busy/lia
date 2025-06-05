@@ -9,18 +9,11 @@ from pydantic_ai.providers.openai import OpenAIProvider
 from .system_prompts.network_agent_system_prompt import network_agent_system_prompt
 from .system_prompts.reviewer_agent_system_prompt import reviewer_agent_system_prompt
 from .system_prompts.preliminary_research_agent_prompt import preliminary_research_agent_prompt
-
 from pydantic import BaseModel,Field
 import asyncio
-import pprint
 import json
 from pydantic_ai.mcp import MCPServerStdio,MCPServerHTTP
-from mcp import LoggingLevel
-
 import asyncio
-import socket
-
-
 
 research_mcp_servers = [
     MCPServerStdio('uvx', args=["duckduckgo-mcp-server"]),
@@ -229,7 +222,7 @@ References:
                         prompt += '\n'.join(process.references)
                         if options.debug:
                             print(f"Review Prompt: \n{prompt} {process}")
-                        r = await reference_review_agent.run(prompt, model_settings={'temperature': 1},usage_limits=UsageLimits(request_limit=200))
+                        r = await reference_review_agent.run(prompt, model_settings={'temperature': 0},usage_limits=UsageLimits(request_limit=200))
 
                         # print(f"Preliminary Research: {ctx.state.preliminary_research}")
                         if options.debug:
