@@ -115,6 +115,43 @@ $ lia generate-material-network --help
 ╰──────────────────────────────────────────────────────────────────────────────────────────────╯
 ```
 
+### identify-raw-materials
+Attempts to find the raw materials need to produce a product or component along with its HS Code and whether the 
+material relationship is direct (ends up in the final product) or indirect (only used in the manufacturing process)
+
+It depends on an externally run mcp server (locally running) for the HS Code resolution.  You can launch that tool like this:
+```cd src/lia; python tools/mcp-server-hscode-vector-rollupmd.py```
+
+Note: This mcp server is currently expecting to run on Rivanna to have access to /sfs/gpfs/tardis/project/bi_dpi/data/UN_Comtrade/H6_rollup.md.  To run locally, make sure the file is available locally and then run it the mcp server with ```--file /path/to/H6_rollup.md```.
+
+```
+lia identify-raw-materials -o /tmp/raw_material_list.json -m "gpt-4.1-mini" -r 1 -R 2  --llm-api-key $OAIKEY arduino microprocessor
+```
+
+Options:
+```
+$ lia identify-raw-materials --help
+                                                                                                                           
+ Usage: lia identify-raw-materials [OPTIONS] MATERIAL...                                                                   
+                                                                                                                           
+ Identify raw materials for a specific technology/product                                                                  
+                                                                                                                           
+                                                                                                                           
+╭─ Arguments ─────────────────────────────────────────────────────────────────────────────────────────────────────────────╮
+│ *    material      MATERIAL...  [default: None] [required]                                                              │
+╰─────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────╯
+╭─ Options ───────────────────────────────────────────────────────────────────────────────────────────────────────────────╮
+│ --debug        -d               Enable debugging output.                                                                │
+│ --model        -m      TEXT     Default Base Model Name [default: llama3.3]                                             │
+│ --llm-api-url  -u      TEXT     URL to LLM API [default: None]                                                          │
+│ --llm-api-key  -k      TEXT     API Key if needed for LLM [default: None]                                               │
+│ --max-reviews  -R      INTEGER  Maximum number of reviews [default: 3]                                                  │
+│ --min-reviews  -r      INTEGER  Minimum number of reviews [default: 1]                                                  │
+│ --output       -o      TEXT     Output file.  If not provided, output stdout [default: None]                            │
+│ --help                          Show this message and exit.                                                             │
+╰─────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────╯
+```
+
 ### Tools
 There are a few tools in here, most have only recently been developed and are not fully deployed throughout all of the subsystems of lia.
 - Python execution tool
