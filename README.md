@@ -26,21 +26,22 @@ Some/much of the folowing may not be necessary if you start with the conda_env.y
 
 ## Usage
 ```
-$ lia --help
-Usage: lia [OPTIONS] COMMAND [ARGS]...
-
-Options:
-  --install-completion [bash|zsh|fish|powershell|pwsh]
-                                  Install completion for the specified shell.
-  --show-completion [bash|zsh|fish|powershell|pwsh]
-                                  Show completion for the specified shell, to
-                                  copy it or customize the installation.
-  --help                          Show this message and exit.
-
-Commands:
-  ateam     Start the interactive chat with ATeam.
-  lia       Start the interactive chat with Lia.
-  reasoner  Start the interactive chat with reasoner.
+$lia --help
+                                                                                                                                                      
+ Usage: lia [OPTIONS] COMMAND [ARGS]...                                                                                                               
+                                                                                                                                                      
+╭─ Options ──────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────╮
+│ --install-completion          Install completion for the current shell.                                                                            │
+│ --show-completion             Show completion for the current shell, to copy it or customize the installation.                                     │
+│ --help                        Show this message and exit.                                                                                          │
+╰────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────╯
+╭─ Commands ─────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────╮
+│ generate-material-network       Start the Material Network Generator                                                                               │
+│ generate-supply-chain-network   Start the Supply Chain Network Generator                                                                           │
+│ reasoner                        Start the interactive chat with reasoner.                                                                          │
+│ ateam                           Start the interactive chat with ATeam.                                                                             │
+│ lia                             Start the interactive chat with Lia.                                                                               │
+╰────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────╯$
 ```
 
 The base ```lia lia``` command will have you interacting with the "context_manager_agent".  You can establish a differnet default agent, with ```-a <agent>```, for example ```lia lia -a supply_chain_agent```.
