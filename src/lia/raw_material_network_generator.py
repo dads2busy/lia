@@ -15,20 +15,23 @@ import asyncio
 import pprint
 import json
 from pydantic_ai.mcp import MCPServerStdio,MCPServerHTTP
+from mcp import LoggingLevel
 
 import asyncio
 import socket
 
+
+
 research_mcp_servers = [
-    MCPServerStdio('uvx', ["duckduckgo-mcp-server"]),
-    # MCPServerStdio('python', ["-m", "mcp_simple_arxiv"]),
-    MCPServerStdio('wikipedia-mcp', ["--transport", "stdio"]),
+    MCPServerStdio('uvx', args=["duckduckgo-mcp-server"]),
+    # MCPServerStdio('python', ["-m", "mcp_simple_arxiv"],log_level="notice"),
+    MCPServerStdio('wikipedia-mcp', ["--transport", "stdio", "--log-level", "WARNING"]),
 ]
 
 generator_mcp_servers = [
     MCPServerStdio('uvx', ["duckduckgo-mcp-server"]),
     # MCPServerStdio('python', ["-m", "mcp_simple_arxiv"]),
-    MCPServerStdio('wikipedia-mcp', ["--transport", "stdio"]),
+    MCPServerStdio('wikipedia-mcp', ["--transport", "stdio", "--log-level", "WARNING"]),
     # MCPServerStdio('python', ["tools/mcp-server-hscode-sql.py"]),
     MCPServerHTTP(url="http://127.0.0.1:8000/mcp")
 ]       
@@ -36,7 +39,7 @@ generator_mcp_servers = [
 reviewer_mcp_servers = [
     MCPServerStdio('uvx', ["duckduckgo-mcp-server"]),
     # MCPServerStdio('python', ["-m", "mcp_simple_arxiv"]),
-    MCPServerStdio('wikipedia-mcp', ["--transport", "stdio"]),
+    MCPServerStdio('wikipedia-mcp', ["--transport", "stdio", "--log-level", "WARNING"]),
     # MCPServerStdio('python', ["tools/mcp-server-hscode-sql.py"]),
     MCPServerHTTP(url="http://127.0.0.1:8000/mcp")
 ]       
@@ -154,7 +157,7 @@ class PreliminaryResearch(BaseModel):
     material: str
     research: List[PreliminaryResearchMaterial] = field(default_factory=list)
 
-class GenerateSupplyChainNetworkOptions(BaseModel):
+class MaterialNetworkGeneratorOptions(BaseModel):
     model_name: str = "llama3.3"
     llm_api_url: str | None = "http://localhost:11434/v1"
     llm_api_key: str = ""
@@ -163,6 +166,7 @@ class GenerateSupplyChainNetworkOptions(BaseModel):
     preliminary_research_rounds: int | None = 1
     max_network_reviews: int | None = 5
     max_secondary_reviews: int | None = 2
+    debug: bool = False
     
 @dataclass
 class NetworkBuilderState:
@@ -175,12 +179,12 @@ class NetworkBuilderState:
     network_reviews = int(0)
     secondary_reviews = int(0)
     network_secondary_review: bool = False
-    options: GenerateSupplyChainNetworkOptions = field(default_factory=GenerateSupplyChainNetworkOptions)
+    options: MaterialNetworkGeneratorOptions = field(default_factory=MaterialNetworkGeneratorOptions)
     network: DAG|None = None
     network_generator_history:List = field(default_factory=list)
     network_reviewer_history:List = field(default_factory=list)
 
-async def get_raw_material_network(material: str, options: GenerateSupplyChainNetworkOptions,graph_only:bool=False):
+async def get_raw_material_network(material: str, options: MaterialNetworkGeneratorOptions,graph_only:bool=False):
     provider = OpenAIProvider(base_url=options.llm_api_url,api_key=options.llm_api_key)
     default_model = OpenAIModel(options.model_name,provider=provider)
     network_agent = Agent(model=default_model, result_type=DAG,system_prompt=network_agent_system_prompt,mcp_servers=generator_mcp_servers,retries=5)
@@ -189,22 +193,21 @@ async def get_raw_material_network(material: str, options: GenerateSupplyChainNe
     reference_review_agent = Agent(model=default_model,result_type=ValidatedTransformationProcesses,system_prompt=preliminary_research_agent_prompt,mcp_servers=research_mcp_servers,retries=5)
     clean_reviewer_agent = Agent(model=default_model,result_type=SuggestedChanges,system_prompt=reviewer_agent_system_prompt,mcp_servers=reviewer_mcp_servers,retries=5)
     
-    
     @dataclass
     class ReviewPreliminaryResearchReferences(BaseNode[NetworkBuilderState]):
 
         async def run(self, ctx: GraphRunContext) -> Union['GetMaterialNetwork','DoPreliminaryResearch','End','ReviewPreliminaryResearchReferences']:
             
             if ctx.state.preliminary_research is None:
-                print(f"There is currently no preliminary research for {ctx.state.material}")
+                if options.debug:
+                    print(f"There is currently no preliminary research for {ctx.state.material}")
                 return End(ctx.state)
             
-            print("Creating validated research object")
             validated_research = ValidatedResearch(material=ctx.state.material,research=[])
-            print(f"ValidatedResearch: {validated_research}")
             for material in ctx.state.preliminary_research.research:
                 validated_material = ValidatedMaterial(name=material.name,processes=[])
-                print(f"Validating references for {material.name}....")
+                if options.debug:
+                    print(f"Validating references for {material.name}....")
                 for process in material.processes:
                     try: 
                         prompt = f"""
@@ -224,11 +227,13 @@ References:
  
                         """
                         prompt += '\n'.join(process.references)
-                        print(f"Review Prompt: \n{prompt} {process}")
+                        if options.debug:
+                            print(f"Review Prompt: \n{prompt} {process}")
                         r = await reference_review_agent.run(prompt, model_settings={'temperature': 1},usage_limits=UsageLimits(request_limit=200))
 
                         # print(f"Preliminary Research: {ctx.state.preliminary_research}")
-                        print(f"Result: {r.output}")
+                        if options.debug:
+                            print(f"Result: {r.output}")
                         validated_material.processes.append(r.output)
                 
                     except Exception as err:
@@ -498,7 +503,6 @@ References:
                         return CleanReviewNetwork()
                     print(f"Error in ReviewBaseMaterials: {err}")
             
-            print("Return VerifyNodes from Clean Review")
             return VerifiyNodesExist()
     if graph_only:
         return  Graph(nodes=(GetMaterialNetwork,ReviewNetwork,CleanReviewNetwork,VerifiyNodesExist,DoPreliminaryResearch,ReviewPreliminaryResearchReferences))
@@ -522,7 +526,7 @@ def serialize_material_network(network:DAG) -> str:
     },indent=4)
 
 async def main():
-    graph = await get_raw_material_network("Boron",options=GenerateSupplyChainNetworkOptions(model_name="llama-3.3",llm_api_url="http://udc-aj37-36:11434/v1",llm_api_key="none"),graph_only=True)
+    graph = await get_raw_material_network("Boron",options=MaterialNetworkGeneratorOptions(model_name="llama-3.3",llm_api_url="http://udc-aj37-36:11434/v1",llm_api_key="none"),graph_only=True)
     graph.mermaid_save("generate_raw_material_network_graph.png")
     
 if __name__ == "__main__":

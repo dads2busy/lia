@@ -11,7 +11,7 @@ import json
 max_recursion_depth:int = 3
 
 
-class GenerateSupplyChainNetworkOptions(BaseModel):
+class MaterialNetworkGeneratorOptions(BaseModel):
     model_name: str = "llama3.3"
     llm_api_url: str | None = "http://localhost:11434/v1"
     llm_api_key: str = ""
@@ -35,7 +35,7 @@ class ComponentAssemblyState:
     suggested_changes: SuggestedChanges = field(default_factory=lambda: SuggestedChanges(has_updates=False))
     reviews = int(0)
     components: List[Component] = field(default_factory=list)
-    options: GenerateSupplyChainNetworkOptions = field(default_factory=GenerateSupplyChainNetworkOptions)
+    options: MaterialNetworkGeneratorOptions = field(default_factory=MaterialNetworkGeneratorOptions)
     reviewer_history: List = field(default_factory=list)
     constructor_history: List = field(default_factory=list)
 
@@ -45,7 +45,7 @@ class ComponentNetwork:
     subcomponents: List[Component] = field(default_factory=list)
 
 
-async def get_component_network(component_name: str, options: GenerateSupplyChainNetworkOptions, component_index:dict|None=None, depth:int=0, parent:Component|None=None) -> ComponentNetwork:     
+async def get_component_network(component_name: str, options: MaterialNetworkGeneratorOptions, component_index:dict|None=None, depth:int=0, parent:Component|None=None) -> ComponentNetwork:     
     default_model = OpenAIModel(model_name=options.model_name,base_url=options.llm_api_url,api_key=options.llm_api_key) 
     print(f"get_component_network: {component_name} {depth}")
     if component_index is None:
@@ -72,7 +72,7 @@ async def get_component_network(component_name: str, options: GenerateSupplyChai
     component_index[component_name] = ComponentNetwork(component=Component(name=component_name),subcomponents=subcomponents)
     return component_index[component_name]
 
-async def get_component_assembly(component: str, options: GenerateSupplyChainNetworkOptions, parent:Component|None=None):
+async def get_component_assembly(component: str, options: MaterialNetworkGeneratorOptions, parent:Component|None=None):
 
     default_model = OpenAIModel(model_name=options.model_name,base_url=options.llm_api_url,api_key=options.llm_api_key) 
 
@@ -252,7 +252,7 @@ async def get_component_assembly(component: str, options: GenerateSupplyChainNet
 async def main():
     product = 'Intel Core i9-9900K'
     print(f"Analyzing product: {product}")
-    result= await get_component_network(product,options=GenerateSupplyChainNetworkOptions(model_name="llama3.3",llm_api_url="http://udc-aj38-35:11434/v1",llm_api_key="none"))
+    result= await get_component_network(product,options=MaterialNetworkGeneratorOptions(model_name="llama3.3",llm_api_url="http://udc-aj38-35:11434/v1",llm_api_key="none"))
     print("Graph Run Complete.")
     pprint.pp(result,indent=4)
 

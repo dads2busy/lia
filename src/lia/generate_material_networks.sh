@@ -13,7 +13,7 @@ for i in {10..10}; do
 		if [ -f "$OUTPUT_FOLDER/${material// /}-$MODEL-$i.preliminary.json" ]; then
 			PRELIM="-i $OUTPUT_FOLDER/${material// /}-$MODEL-$i.preliminary.json"
 		fi
-		time lia generate-material-network --prelim-rounds 0 --prelim-only true $PRELIM -p $OUTPUT_FOLDER/${material// /}-$MODEL-$i.preliminary.json -o $OUTPUT_FOLDER/${material// /}-$MODEL-$i.json -m $MODEL $API_KEY "$material"; 
+		time lia generate-material-network --debug true --prelim-rounds 0 --prelim-only true $PRELIM -p $OUTPUT_FOLDER/${material// /}-$MODEL-$i.preliminary.json -o $OUTPUT_FOLDER/${material// /}-$MODEL-$i.json -m $MODEL $API_KEY "$material"; 
 		
 		if [ -f "$OUTPUT_FOLDER/${material// /}-$MODEL-$i.json" ]; then
 			python visualize_network.py $OUTPUT_FOLDER/${material// /}-$MODEL-$i.json

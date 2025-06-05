@@ -12,7 +12,7 @@ import os
 import json
 import asyncio
 from lia.supply_chain_network_generator import analyze_product, Product
-from lia.raw_material_network_generator import get_raw_material_network,GenerateSupplyChainNetworkOptions,serialize_material_network,PreliminaryResearch
+from lia.raw_material_network_generator import get_raw_material_network,MaterialNetworkGeneratorOptions,serialize_material_network,PreliminaryResearch
 app = typer.Typer()
 
 class Options(BaseModel):
@@ -55,15 +55,25 @@ def generate_material_network (
     
             prelim_data = PreliminaryResearch(**data)
     
-    options = GenerateSupplyChainNetworkOptions(debug=debug,model_name=model,llm_api_url=llm_api_url,llm_api_key=llm_api_key,preliminary_research_only=preliminary_only,preliminary_research_data=prelim_data,preliminary_research_rounds=preliminary_rounds)
+    options = MaterialNetworkGeneratorOptions(
+        debug=debug,
+        model_name=model,
+        llm_api_url=llm_api_url,
+        llm_api_key=llm_api_key,
+        preliminary_research_only=preliminary_only,
+        preliminary_research_data=prelim_data,
+        preliminary_research_rounds=preliminary_rounds
+    )
+    
     print(f"Material: {material}")
-    print(f"Options:\n{options}")
+    if debug:
+        print(f"Options:\n{options}")
+        
     try: 
         results = asyncio.run(get_raw_material_network(material,options))
         # print(f"Results: {results.output}")
         if results.output is not None:
             if results.output.preliminary_research is not None:
-                print("Preliminary Research:")
                 research_dict = results.output.preliminary_research.dict()
                 if preliminary_out:
                     with open(preliminary_out, 'w') as f:
@@ -71,13 +81,15 @@ def generate_material_network (
                         f.close()
                         print(f"Wrote preliminary research data to {preliminary_out}")
                 else:
-                    print(json.dumps(research_dict, indent=2))
+                    if debug:
+                        print("Preliminary Research:")
+                        print(json.dumps(research_dict, indent=2))
             
-            print("Preliminary Research:")
             if results.output.validated_research is not None:
-                print("Validated Research:")
-                research_dict = results.output.validated_research.dict()
-                print(json.dumps(research_dict, indent=2))
+                if debug:
+                    print("Validated Research:")
+                    research_dict = results.output.validated_research.dict()
+                    print(json.dumps(research_dict, indent=2))
                 # if preliminary_out:
                 #     with open(preliminary_out, 'w') as f:
                 #         f.write(json.dumps(research_dict, indent=2))
@@ -111,7 +123,7 @@ def generate_supply_chain_network (
     Start the Supply Chain Network Generator
     """
     print("Starting Supply Chain Network Generator")
-    options = GenerateSupplyChainNetworkOptions(debug=debug,model_name=model,llm_api_url=llm_api_url,llm_api_key=llm_api_key)
+    options = MaterialNetworkGeneratorOptions(debug=debug,model_name=model,llm_api_url=llm_api_url,llm_api_key=llm_api_key)
     try: 
         results = asyncio.run(analyze_product(Product(name=product),options))
         

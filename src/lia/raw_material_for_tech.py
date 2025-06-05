@@ -6,7 +6,7 @@ from pydantic_ai.models.openai import OpenAIModel
 from pydantic import BaseModel,Field
 import asyncio
 
-class GenerateSupplyChainNetworkOptions(BaseModel):
+class MaterialNetworkGeneratorOptions(BaseModel):
     model_name: str = "llama3.3"
     llm_api_url: str | None = "http://localhost:11434/v1"
     llm_api_key: str = ""
@@ -31,12 +31,12 @@ class ComponentAssemblyState:
     suggested_changes: SuggestedChanges = field(default_factory=lambda: SuggestedChanges(has_updates=False))
     reviews = int(0)
     material: List[RawMaterial] = field(default_factory=list)
-    options: GenerateSupplyChainNetworkOptions = field(default_factory=GenerateSupplyChainNetworkOptions)
+    options: MaterialNetworkGeneratorOptions = field(default_factory=MaterialNetworkGeneratorOptions)
     reviewer_history: List = field(default_factory=list)
     constructor_history: List = field(default_factory=list)
 
 
-async def get_raw_materials(component: str, options: GenerateSupplyChainNetworkOptions):
+async def get_raw_materials(component: str, options: MaterialNetworkGeneratorOptions):
 
     default_model = OpenAIModel(model_name=options.model_name,base_url=options.llm_api_url,api_key=options.llm_api_key) 
 
@@ -183,7 +183,7 @@ async def get_raw_materials(component: str, options: GenerateSupplyChainNetworkO
 async def main():
     product = 'STM32 family of 32-bit microcontrollers'
     print(f"Analyzing product: {product}")
-    result= await get_raw_materials(product,options=GenerateSupplyChainNetworkOptions(model_name="llama-3.3-lia-maxctx:latest",llm_api_url="http://udc-aj38-35:11434/v1",llm_api_key="none"))
+    result= await get_raw_materials(product,options=MaterialNetworkGeneratorOptions(model_name="llama-3.3-lia-maxctx:latest",llm_api_url="http://udc-aj38-35:11434/v1",llm_api_key="none"))
     print(f"Raw Materials for {product}:")
     for material in result:
         print(f"\t - {material.name} ({material.type}, {material.hscode})")

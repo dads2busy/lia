@@ -55,7 +55,5 @@ src/lia/tools/mcp-server-duckb.py
 src/lia/tools/mcp-server-hscode-sql.py
 src/lia/tools/mcp-server-hscode-vector-from-json.py
 src/lia/tools/mcp-server-hscode-vector-rollupmd.py
-src/lia/tools/mcpcli.py
 src/lia/tools/python_execution_tool.py
-src/lia/tools/test_client.py
 tests/test_cli.py

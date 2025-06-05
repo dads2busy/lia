@@ -13,7 +13,7 @@ import json
 
 max_recursion_depth:int = 3
 
-class GenerateSupplyChainNetworkOptions(BaseModel):
+class MaterialNetworkGeneratorOptions(BaseModel):
     debug: bool = False
     model_name: str = "llama3.3"
     llm_api_url: str | None
@@ -71,7 +71,7 @@ class GraphState:
     messages:list = field(default_factory = list)
     component_index:dict = field(default_factory = dict)
     
-async def analyze_product(product:Product,options:GenerateSupplyChainNetworkOptions):
+async def analyze_product(product:Product,options:MaterialNetworkGeneratorOptions):
     
     default_model = OpenAIModel(model_name=options.model_name,base_url=options.llm_api_url,api_key=options.llm_api_key) 
     component_analysis_agent = ComponentAnalysisAgent(model=default_model)
