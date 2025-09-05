@@ -1,0 +1,16 @@
+dysprosium
+neodymium
+yttrium
+cerium
+gallium
+germanium
+iridium
+phosphorus
+silicon
+tantalum
+neon
+krypton
+xenon
+gallium Nitride
+indium_phosphide
+photoresist_polymers

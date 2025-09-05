@@ -9,12 +9,11 @@ requires-python = ">=3.10"
 dependencies=[
     "typer>=0.9.1",
     "pydantic>2.0.0",
-    "pydantic_ai==0.2.12",
-    "pydantic_ai[mcp]==0.2.12",
+    "pydantic_ai==0.3.4",
     "prompt_toolkit",
     "hnswlib",
-    "mcp==1.9.0",
-    "fastmcp>=2.5.2",
+    "mcp>=1.9.4",
+    "fastmcp>=2.9.2",
     "fastapi",
     "networkx>=3.4.2",
     "scipy>=1.15.3",
@@ -22,12 +21,19 @@ dependencies=[
     "pandas>=2.2.3",
     "jinja2",
     "uvenv",
-    "wikipedia-mcp",
+    "wikipedia-mcp>=1.5.2",
     "sentence-transformers>=4.1.0",
     "duckduckgo-mcp-server>=0.1.1",
     "mcp-simple-arxiv>=0.2.2",
     "duckdb>=1.2.2",
-    "pyarrow>=20.0.0"
+    "pyarrow>=20.0.0",
+    "faiss-cpu",
+    "pdfminer.six[image]",
+    "huggingface_hub",
+    "supervisor",
+    "crawl4ai",
+    "mcp-google-cse",
+    "mcp-server-fetch"
 ]
 
 [project.scripts]

@@ -1,0 +1,213 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <title>Supply Chain Research Viewer</title>
+  <script src="https://cdn.jsdelivr.net/npm/vis-network@9.1.2/dist/vis-network.min.js"></script>
+  <link href="https://cdn.jsdelivr.net/npm/vis-network@9.1.2/dist/vis-network.min.css" rel="stylesheet">
+  <script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
+  <style>
+    html, body { margin: 0; height: 100%; font-family: sans-serif; }
+    #tabs { display: flex; height: 100vh; flex-direction: column; }
+    #tab-buttons { display: flex; border-bottom: 1px solid #ccc; }
+    .tab-button { padding: 10px 15px; cursor: pointer; border: none; background: #f5f5f5; }
+    .tab-button.active { background: #e0e0e0; font-weight: bold; }
+    .tab-content { display: none; flex: 1; overflow: auto; padding: 1em; }
+    .tab-content.active { display: block; }
+    #network-container { height: 75vh; border: 1px solid #ccc; }
+    .detail-panel { position: fixed; right: 0; top: 0; bottom: 0; width: 400px; overflow: auto; padding: 1em; background: #fafafa; border-left: 1px solid #ccc; display: none; }
+    table { width: 100%; border-collapse: collapse; margin-top: 1em; }
+    th, td { padding: 6px 10px; border: 1px solid #ccc; text-align: left; }
+    tr:hover { background-color: #f0f0f0; cursor: pointer; }
+    .legend { display: flex; flex-wrap: wrap; margin-top: 1em; gap: 10px; }
+    .legend span { padding: 4px 8px; border-radius: 3px; color: #fff; font-size: 0.9em; }
+    .link { color: #0074d9; cursor: pointer; text-decoration: underline; }
+    .tab-close { float: right; cursor: pointer; font-weight: bold; }
+  </style>
+</head>
+<body>
+  <div id="tabs">
+    <div id="tab-buttons">
+      <button class="tab-button active" data-tab="config">Research Config</button>
+      <button class="tab-button" data-tab="materials">Materials</button>
+      <button class="tab-button" data-tab="processes">Processes</button>
+      <button class="tab-button" data-tab="network">Network</button>
+    </div>
+    <div id="config" class="tab-content active"><pre id="config-json"></pre></div>
+    <div id="materials" class="tab-content"><table id="materials-table"><thead><tr><th>ID</th><th>Name</th></tr></thead><tbody></tbody></table></div>
+    <div id="processes" class="tab-content"><table id="processes-table"><thead><tr><th>ID</th><th>Description</th></tr></thead><tbody></tbody></table></div>
+    <div id="network" class="tab-content">
+      <div id="network-container"></div>
+      <div class="legend" id="legend"></div>
+    </div>
+  </div>
+  <div class="detail-panel" id="detail-panel"></div>
+  <script>
+    const hsSections = [
+      {section:1, hs_codes:[1,5], description:"LIVE ANIMALS", color:"#0072B2"},
+      {section:2, hs_codes:[6,14], description:"VEGETABLE PRODUCTS", color:"#D55E00"},
+      {section:3, hs_codes:[15,15], description:"FATS AND OILS", color:"#CC79A7"},
+      {section:4, hs_codes:[16,24], description:"FOODSTUFFS", color:"#F0E442"},
+      {section:5, hs_codes:[25,27], description:"MINERAL PRODUCTS", color:"#009E73"},
+      {section:6, hs_codes:[28,38], description:"CHEMICAL PRODUCTS", color:"#56B4E9"},
+      {section:7, hs_codes:[39,40], description:"PLASTICS / RUBBER", color:"#E69F00"},
+      {section:8, hs_codes:[41,43], description:"RAW HIDES, LEATHER", color:"#000000"},
+      {section:9, hs_codes:[44,46], description:"WOOD / WICKERWORK", color:"#E69F00"},
+      {section:10, hs_codes:[47,49], description:"PAPER / PAPERBOARD", color:"#999999"},
+      {section:11, hs_codes:[50,63], description:"TEXTILES", color:"#0072B2"},
+      {section:12, hs_codes:[64,67], description:"FOOTWEAR / HEADGEAR", color:"#D55E00"},
+      {section:13, hs_codes:[68,70], description:"STONE / CERAMIC", color:"#CC79A7"},
+      {section:14, hs_codes:[71,71], description:"PRECIOUS METALS", color:"#F0E442"},
+      {section:15, hs_codes:[72,83], description:"BASE METALS", color:"#009E73"},
+      {section:16, hs_codes:[84,85], description:"MACHINERY", color:"#56B4E9"},
+      {section:17, hs_codes:[86,89], description:"TRANSPORT", color:"#E69F00"},
+      {section:18, hs_codes:[90,92], description:"INSTRUMENTS", color:"#000000"},
+      {section:19, hs_codes:[93,93], description:"ARMS", color:"#0072B2"},
+      {section:20, hs_codes:[94,96], description:"MISC ARTICLES", color:"#D55E00"},
+      {section:21, hs_codes:[97,97], description:"ART / ANTIQUES", color:"#CC79A7"}
+    ];
+
+    function getColor(hsCode) {
+      if (!hsCode) return '#999';
+      const prefix = parseInt(hsCode.substring(0, 2));
+      const section = hsSections.find(s => s.hs_codes[0] <= prefix && s.hs_codes[1] >= prefix);
+      return section ? section.color : '#999';
+    }
+
+    function scoreColor(score) {
+      if (score >= 1) return 'green';
+      const r = Math.round(255 * (1 - score));
+      const g = Math.round(255 * score);
+      return `rgb(${r},${g},0)`;
+    }
+
+    fetch("research_state.json").then(r => r.json()).then(data => {
+      fetch("./research_config.json")
+        .then(res => res.json())
+        .then(config => {
+          document.getElementById("config-json").textContent = JSON.stringify(config, null, 2);
+        });
+
+      const materials = Object.entries(data.materials || {});
+      const matTable = document.querySelector("#materials-table tbody");
+      materials.forEach(([id, m]) => {
+        const row = matTable.insertRow();
+        row.innerHTML = `<td>${id}</td><td>${m.name}</td>`;
+        row.onclick = () => showMaterialDetail(id, m, data.processes);
+      });
+
+      const processes = Object.values(data.processes || {});
+      const procTable = document.querySelector("#processes-table tbody");
+      processes.forEach(p => {
+        const row = procTable.insertRow();
+        row.innerHTML = `<td class="link" onclick="showProcessDetail('${p.id}')">${p.id}</td><td>${p.description}</td>`;
+      });
+
+      const nodes = new vis.DataSet(materials.map(([id, m]) => ({
+        id,
+        label: id,
+        title: m.name,
+        color: getColor(m.hs_code),
+        shape: 'circle',
+        borderWidth: m.mined ? 4 : 1
+      })));
+
+      const edges = new vis.DataSet();
+      processes.forEach(proc => {
+        const sources = (proc.precursors || []).filter(p => typeof p === 'object' && p.hs_code).map(p => p.hs_code);
+        const targets = (proc.products || []).filter(p => typeof p === 'object' && p.hs_code).map(p => p.hs_code);
+        sources.forEach(src => targets.forEach(tgt => {
+          edges.add({
+            from: src,
+            to: tgt,
+            label: proc.id,
+            width: proc.scale ? 1 + proc.scale * 4 : 1,
+            color: proc.process_score === 0 || proc.process_score == null ? { color: '#000', dashes: true } : { color: scoreColor(proc.process_score) }
+          });
+        }));
+      });
+
+      const container = document.getElementById('network-container');
+      const network = new vis.Network(container, { nodes, edges }, {
+        physics: { enabled: true, barnesHut: { gravitationalConstant: -30000, centralGravity: 0.2, springLength: 200, springConstant: 0.05, damping: 0.09, avoidOverlap: 0.8 } },
+        nodes: { shape: 'circle' },
+        edges: { arrows: 'to' }
+      });
+
+      network.on('selectNode', function(params) {
+        const id = params.nodes[0];
+        const mat = data.materials[id];
+        showMaterialDetail(id, mat, data.processes);
+      });
+
+      network.on('selectEdge', function(params) {
+        const edge = edges.get(params.edges[0]);
+        const proc = data.processes[edge.label];
+        showProcessDetail(proc.id);
+      });
+
+      const legendUsed = new Set(materials.map(([_, m]) => parseInt(m.hs_code.substring(0,2))));
+      document.getElementById("legend").innerHTML = hsSections.filter(sec =>
+        sec.hs_codes.some(code => legendUsed.has(code))
+      ).map(sec => `<span style="background:${sec.color}">${sec.description}</span>`).join('');
+    });
+
+    function showMaterialDetail(id, mat, processes) {
+      const related = Object.values(processes).filter(p => {
+        const sources = (p.precursors || []).filter(x => typeof x === 'object').map(x => x.hs_code);
+        const targets = (p.products || []).filter(x => typeof x === 'object').map(x => x.hs_code);
+        return sources.includes(id) || targets.includes(id);
+      });
+      const html = `
+        <h3>Material: ${mat.name}</h3>
+        <p><strong>HS Code:</strong> <span class="link" onclick="alert('TODO: link HS code ${mat.hs_code}')">${mat.hs_code}</span></p>
+        <p><strong>Mined:</strong> ${mat.mined}</p>
+        <p><strong>Primary Uses:</strong><ul>${(mat.primary_uses || []).map(u => `<li>${u}</li>`).join('')}</ul></p>
+        <p><strong>Related Processes:</strong><ul>${related.map(p => `<li class="link" onclick="showProcessDetail('${p.id}')">${p.id}</li>`).join('')}</ul></p>
+      `;
+      showDetail(html);
+    }
+
+    function showProcessDetail(id) {
+      fetch("research_state.json").then(r => r.json()).then(data => {
+        const proc = data.processes[id];
+        const html = `
+          <h3>Process ID: <span class="link">${proc.id}</span></h3>
+          <p><strong>Description:</strong> ${proc.description}</p>
+          <p><strong>Scale:</strong> ${proc.scale}</p>
+          <p><strong>Score:</strong> ${proc.process_score}</p>
+          <p><strong>Precursors:</strong><ul>${(proc.precursors || []).filter(x => typeof x === 'object').map(x => `<li>${x.name} (<span class="link" onclick="alert('TODO: link ${x.hs_code}')">${x.hs_code}</span>)</li>`).join('')}</ul></p>
+          <p><strong>Products:</strong><ul>${(proc.products || []).filter(x => typeof x === 'object').map(x => `<li>${x.name} (<span class="link" onclick="alert('TODO: link ${x.hs_code}')">${x.hs_code}</span>)</li>`).join('')}</ul></p>
+          <p><strong>References:</strong><ul>${(proc.references || []).map(ref => `<li class="link" onclick="openReference('${ref.url}')">${ref.url}</li>`).join('')}</ul></p>
+        `;
+        showDetail(html);
+      });
+    }
+
+    function openReference(url) {
+      const clean = url.split('#')[0];
+      const hash = btoa(clean).replace(/=/g, '');
+      fetch(`./reference_content/${hash}.json`).then(r => r.json()).then(json => {
+        const content = json.content ? marked.parse(json.content) : `<pre>${json.error || 'No content available'}</pre>`;
+        const tab = window.open('', '_blank');
+        tab.document.write(`<!DOCTYPE html><html><head><title>Reference</title><style>body{font-family:sans-serif;padding:1em;} pre{white-space:pre-wrap;}</style></head><body>${content}</body></html>`);
+      });
+    }
+
+    function showDetail(html) {
+      const panel = document.getElementById('detail-panel');
+      panel.innerHTML = html;
+      panel.style.display = 'block';
+    }
+
+    document.querySelectorAll('.tab-button').forEach(btn => {
+      btn.onclick = () => {
+        document.querySelectorAll('.tab-button').forEach(b => b.classList.remove('active'));
+        document.querySelectorAll('.tab-content').forEach(tab => tab.classList.remove('active'));
+        btn.classList.add('active');
+        document.getElementById(btn.dataset.tab).classList.add('active');
+      };
+    });
+  </script>
+</body>
+</html>

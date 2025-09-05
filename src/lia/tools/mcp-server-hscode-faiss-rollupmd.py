@@ -17,8 +17,7 @@ HS_TEXTS = []
 HS_EMBEDDINGS = None
 HS_INDEX = None
 HS_MODEL = SentenceTransformer("all-MiniLM-L6-v2")
-CACHE_DIR = Path(".cache")
-CACHE_DIR.mkdir(exist_ok=True)
+CACHE_DIR = Path(".cache")  # Default cache directory
 
 class HSQueryInput(BaseModel):
     query: str
@@ -36,12 +35,12 @@ def hash_file_path(file_path: Path) -> str:
     abs_path = str(file_path.resolve()).encode("utf-8")
     return hashlib.sha256(abs_path).hexdigest()
 
-def load_hs_text_data(text_path: Path):
+def load_hs_text_data(text_path: Path, cache_dir: Path):
     global HS_DATA, HS_TEXTS, HS_EMBEDDINGS, HS_INDEX
 
     cache_key = hash_file_path(text_path)
-    embedding_cache = CACHE_DIR / f"{cache_key}_embeddings.npy"
-    index_cache = CACHE_DIR / f"{cache_key}_index.faiss"
+    embedding_cache = cache_dir / f"{cache_key}_hscode_embeddings.npy"
+    index_cache = cache_dir / f"{cache_key}_hscode_index.faiss"
 
     if embedding_cache.exists() and index_cache.exists():
         print("✅ Loading from cache...", file=sys.stderr)
@@ -105,8 +104,13 @@ async def semantic_hs_query(input: HSQueryInput) -> HSQueryOutput:
 if __name__ == "__main__":
 
     parser = argparse.ArgumentParser()
-    parser.add_argument("--file", type=str,help="Path to HSCode file",default="/sfs/gpfs/tardis/project/bi_dpi/data/UN_Comtrade/H6_rollup.md")
+    parser.add_argument("--file", type=str, help="Path to HSCode file", default="/sfs/gpfs/tardis/project/bi_dpi/data/UN_Comtrade/H6_rollup.md")
+    parser.add_argument("--cache-dir", type=str, help="Path to cache directory", default=".cache")
     args = parser.parse_args()
+
+    # Set cache directory
+    CACHE_DIR = Path(args.cache_dir).resolve()
+    CACHE_DIR.mkdir(exist_ok=True)
 
     # Load Data
     text_path = Path(args.file).resolve()
@@ -114,6 +118,6 @@ if __name__ == "__main__":
         print(f"File not found: {text_path}", file=sys.stderr)
         sys.exit(1)
 
-    load_hs_text_data(text_path)
+    load_hs_text_data(text_path, CACHE_DIR)
 
     mcp.run(transport="streamable-http", host="127.0.0.1", port=8000, path="/mcp")

@@ -13,3 +13,5 @@ src/lia/*.png
 .cache/
 slurm*.out
 *.bak
+lia.egg-info
+lia.egg-info/
