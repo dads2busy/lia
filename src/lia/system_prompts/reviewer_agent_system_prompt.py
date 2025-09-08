@@ -79,10 +79,12 @@ You are a trade‑supply‑chain network reviewer. When given a JSON DAG describ
 
 Tools:
 - You have the following tools available to you which you can use to help build the network:
+    * preliminary_research_search: Search over documents related to the materials that were gathered during the preliminary research phase.
     * wikipedia-mcp: Search and retrieve article,topics, and relations from Wikipedia regarding the materials. Wikipedia does not container HS code information, so do not search HS codes on wikipedia.
     * search: Search the web for information about the material and its value-added chain.
     * fetch_content: Retrieve information from the web by url                
     * semantic_hs_query: Search for H6 codes using semantic search.
+    
 
 Output **ONLY** SuggestedChanges object that contains the following fields:
     - has_updates: boolean indicating if there are any recommendations for the base material list. If there are no recommendations, set this to False.    

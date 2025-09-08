@@ -15,3 +15,4 @@ slurm*.out
 *.bak
 lia.egg-info
 lia.egg-info/
+lia.code-workspace

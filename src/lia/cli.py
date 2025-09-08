@@ -9,14 +9,27 @@ from lia.ateam import ATeam
 from lia.reasoner import Reasoner
 from pydantic import BaseModel
 from dataclasses import asdict
+from typing import List, Optional, Annotated,Union
 import os
 import json
 import asyncio
 from lia.supply_chain_network_generator import analyze_product, Product
-from lia.raw_material_network_generator import get_raw_material_network,MaterialNetworkGeneratorOptions,serialize_material_network,PreliminaryResearch
+from lia.raw_material_network_generator import get_raw_material_network,MaterialNetworkGeneratorOptions,serialize_material_network,PreliminaryResearch,Reference
 from lia.identify_raw_materials import identify_raw_materials as call_identify_raw_materials,IdentifyRawMaterialsOptions
+from lia.research.research_cli import app as research_app
+from lia.search import llmsearch,SearchOptions
 app = typer.Typer()
+app.add_typer(research_app,name="research",)
 
+DEFAULT_LIA_CONFIG = Path.home() / ".lia" / "config.json"
+
+def load_user_config() -> dict:
+    if DEFAULT_LIA_CONFIG.exists():
+        with DEFAULT_LIA_CONFIG.open() as f:
+            return json.load(f)
+    return {}
+
+UserConfig = load_user_config()
 class Options(BaseModel):
     debug: bool = False
     reasoning:bool = False
@@ -26,8 +39,30 @@ class Options(BaseModel):
     llm_api_url: str | None
     llm_api_key: str = ""
     python_tool_container: str | None = None
-    
-    
+                
+@app.command()
+def search (
+    query: str,
+    model: Annotated[str, typer.Option("--model", "-m", help="Default Base Model Name")] = UserConfig.get("model","llama3.3"),
+    llm_api_url: Annotated[Optional[str], typer.Option("--llm-api-url", "-u", help="URL to LLM API")] = UserConfig.get("llm_api_url",None),
+    llm_api_key: Annotated[str, typer.Option("--llm-api-key", "-k", help="API Key if needed for LLM")] = UserConfig.get("llm_api_key",None),
+    google_api_key: Annotated[Optional[str], typer.Option("--google-api-key", "-g", help="Google API Key for custom search")] = UserConfig.get("google_api_key", None),
+    google_custom_search_engine_id: Annotated[Optional[str], typer.Option("--google-cse-id", "-c", help="Google Custom Search Engine ID")] = UserConfig.get("google_custom_search_engine_id", None)
+):
+    """
+    Perform LLM assisted web search
+    """   
+    options = SearchOptions(
+        model_name=model,
+        llm_api_url=llm_api_url,
+        llm_api_key=llm_api_key,
+        google_api_key=google_api_key,
+        google_custom_search_engine_id=google_custom_search_engine_id
+    )
+    print(f"from options: {options.google_api_key}")
+    print(f"Options: {options}")
+    return asyncio.run(llmsearch(query,options=options))
+
 @app.command()
 def identify_raw_materials (
     material: str,
@@ -74,12 +109,15 @@ def identify_raw_materials (
 
 @app.command()
 def generate_material_network (
-    material: list[str],
+    material: str = typer.Argument(..., help="Material to analyze for network generation"),
     output: Annotated[str,None, typer.Option("--output", "-o", help="Output file.  If not provided, output stdout")] = None,
     preliminary_only: Annotated[bool, typer.Option("--prelim-only", "-P", help="Only perform the preliminary analysis, no network generation")] = False,
     preliminary_out: Annotated[str,None, typer.Option("--prelim-out", "-p", help="Output for Preliminary Research. Do not save if not provided.")] = None,
     preliminary_in: Annotated[str,None, typer.Option("--prelim-in", "-i", help="Input for Preliminary Research. Uses this data as the starting point.")] = None,
     preliminary_rounds: Annotated[int,None,typer.Option("--prelim-rounds",help="Number of preliminary research rounds")]=3,
+    max_preliminary_rounds: Annotated[int,None,typer.Option("--max-prelim-rounds",help="Maximum number of preliminary research rounds")]=6,
+    references: Annotated[str,None, typer.Option("--references", "-r", help="Storage for references. If not provided, all references will be re-evaluated")] = None,
+    reference_cache_folder: Annotated[str,None, typer.Option("--reference-cache", "-c", help="Path to folder where reference content is stored.")] = None,
     debug: Annotated[bool, typer.Option("--debug", "-d", help="Enable debugging output.")] = False,
     model:  Annotated[str, typer.Option("--model", "-m", help="Default Base Model Name")] = "llama3.3",
     llm_api_url: Annotated[str,None, typer.Option("--llm-api-url", "-u", help="URL to LLM API")] = None,
@@ -88,7 +126,7 @@ def generate_material_network (
     """
     Start the Material Network Generator
     """
-    material = ' '.join(material)
+
     print("Starting Material Network Generator")
     prelim_data = None
     
@@ -101,6 +139,18 @@ def generate_material_network (
             data = json.load(f)
     
             prelim_data = PreliminaryResearch(**data)
+
+    if references:
+        path = Path(references)
+        reference_data = None
+        if not path.exists():
+            print("Reference file not found. References will be re-evaluated.")
+        else:
+            with path.open("r", encoding="utf-8") as f:
+                data = json.load(f)
+                reference_data = {k: Reference(**v) for k, v in data.items()}
+
+
     
     options = MaterialNetworkGeneratorOptions(
         debug=debug,
@@ -109,7 +159,10 @@ def generate_material_network (
         llm_api_key=llm_api_key,
         preliminary_research_only=preliminary_only,
         preliminary_research_data=prelim_data,
-        preliminary_research_rounds=preliminary_rounds
+        preliminary_research_rounds=preliminary_rounds,
+        max_preliminary_research_rounds=max_preliminary_rounds,
+        reference_cache_folder=reference_cache_folder,
+        references=reference_data if reference_data else None
     )
     
     print(f"Material: {material}")
@@ -132,22 +185,23 @@ def generate_material_network (
                         print("Preliminary Research:")
                         print(json.dumps(research_dict, indent=2))
             
-            if results.output.validated_research is not None:
-                if debug:
-                    print("Validated Research:")
-                    research_dict = results.output.validated_research.dict()
-                    print(json.dumps(research_dict, indent=2))
-                # if preliminary_out:
-                #     with open(preliminary_out, 'w') as f:
-                #         f.write(json.dumps(research_dict, indent=2))
-                #         f.close()
-                #         print(f"Wrote preliminary research data to {preliminary_out}")
-                # else:
-                #     print(json.dumps(research_dict, indent=2))
+
+            if references is not None:
+                # if debug:
+                #     print("References:")
+                #     print(json.dumps({k: v.model_dump() for k, v in results.output.references.items()},indent=2))
+
+                if references and results.output.references is not None and hasattr(results.output, 'references'):
+                    print(f"Writing references data to file: {references}")
+                    with open(references, 'w') as f:
+                        f.write(json.dumps({k: v.model_dump() for k, v in results.output.references.items()},indent=2))
+                        f.close()
+                    print(f"Wrote references to {references}")
                
             if results.output.network is not None:
+                print("Store output network")
                 with open(output, 'w') as f:
-                    f.write(serialize_material_network(results.output))
+                    f.write(serialize_material_network(results.output.network))
                     f.close()
             
         else:

@@ -1,4 +1,5 @@
 Boron
+Cobalt
 Dysprosium
 Neodymium
 Yttrium
@@ -8,11 +9,10 @@ Germanium
 Iridium
 Phosphorus
 Silicon
-Gallium Nitride
-Indium Phosphide
-Cobalt
 Tantalum
 Neon
 Krypton
 Xenon
+Gallium Nitride
+Indium Phosphide
 Photoresist Polymers

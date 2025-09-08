@@ -7,6 +7,7 @@ from pydantic_ai.providers.openai import OpenAIProvider
 from pydantic import BaseModel,Field
 import asyncio
 from pydantic_ai.mcp import MCPServerStdio,MCPServerHTTP
+from pydantic_ai.usage import UsageLimits
 
 class IdentifyRawMaterialsOptions(BaseModel):
     model_name: str = "llama3.3"
@@ -40,17 +41,17 @@ class RawMaterialsAssemblyState:
 reviewer_mcp_servers = [
     MCPServerStdio('uvx', args=["duckduckgo-mcp-server"]),
     # MCPServerStdio('python', ["-m", "mcp_simple_arxiv"]),
-    MCPServerStdio('wikipedia-mcp', ["--transport", "stdio", "--log-level", "WARNING"]),
+    MCPServerStdio('wikipedia-mcp', ["--transport", "stdio", "--log-level", "INFO"]),
     # MCPServerStdio('python', ["tools/mcp-server-hscode-sql.py"]),
-    MCPServerHTTP(url="http://127.0.0.1:8000/mcp")
+    MCPServerHTTP(url="http://127.0.0.1:8000/mcp/")
 ]      
 
 constructor_mcp_servers = [
     MCPServerStdio('uvx', args=["duckduckgo-mcp-server"]),
     # MCPServerStdio('python', ["-m", "mcp_simple_arxiv"]),
-    MCPServerStdio('wikipedia-mcp', ["--transport", "stdio", "--log-level", "WARNING"]),
+    MCPServerStdio('wikipedia-mcp', ["--transport", "stdio", "--log-level", "INFO"]),
     # MCPServerStdio('python', ["tools/mcp-server-hscode-sql.py"]),
-    MCPServerHTTP(url="http://127.0.0.1:8000/mcp")
+    MCPServerHTTP(url="http://127.0.0.1:8000/mcp/")
 ]  
 
 constructor_agent_system_prompt = """
@@ -127,7 +128,7 @@ async def identify_raw_materials(component: str, options: IdentifyRawMaterialsOp
 
             try: 
                 if not ctx.state.suggested_changes.has_updates:
-                    r = await constructor_agent.run(f"Please generate a list of the raw materials required to assemble '{ctx.state.component}' and its subcomponents. ",message_history=ctx.state.constructor_history,model_settings={'temperature': temperature})
+                    r = await constructor_agent.run(f"Please generate a list of the raw materials required to assemble '{ctx.state.component}' and its subcomponents. ",message_history=ctx.state.constructor_history,model_settings={'temperature': temperature},usage_limits=UsageLimits(request_limit=200))
 
                     if isinstance(r.data,list):
                         ctx.state.material = r.data
@@ -139,7 +140,7 @@ async def identify_raw_materials(component: str, options: IdentifyRawMaterialsOp
                         {ctx.state.suggested_changes.recommendations if ctx.state.suggested_changes.recommendations else ""}
                         Please update and return the list of raw materials.
                     """
-                    r = await constructor_agent.run(prompt, model_settings={'temperature': temperature})
+                    r = await constructor_agent.run(prompt, model_settings={'temperature': temperature},usage_limits=UsageLimits(request_limit=200))
                     ctx.state.constructor_history += r.new_messages()
                     if isinstance(r.data,list):
                         ctx.state.material = r.data
@@ -170,7 +171,7 @@ async def identify_raw_materials(component: str, options: IdentifyRawMaterialsOp
                         
                     prompt += "If you have no suggestions, return a SuggestChanges object with has_updates set to False."
                     
-                    r = await reviewer_agent.run(prompt,message_history=ctx.state.reviewer_history,model_settings={'temperature': temperature})
+                    r = await reviewer_agent.run(prompt,message_history=ctx.state.reviewer_history,model_settings={'temperature': temperature},usage_limits=UsageLimits(request_limit=200))
                     # print(f"Review result: {r.data}")
                     # if 'no changes required' not in r.data.lower():
                     # if r.data.lower() != 'no changes required':
