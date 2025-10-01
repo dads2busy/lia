@@ -7,26 +7,24 @@ from typing import List,Union,Dict,Any
 from lia.research.config import ResearchConfig
 from lia.research import ResearchPipelineOptions,ResearchMaterial
 
-default_mcp_servers = [
-    MCPServerStreamableHTTP(url="http://127.0.0.1:8000/mcp/"), # HS Code semantic search (H6 rollup)
-    MCPServerStreamableHTTP(url="http://127.0.0.1:8001/mcp/"), # Research Content Semantic Search
-    MCPServerStdio('wikipedia-mcp', ["--transport", "stdio", "--log-level", "INFO"]),
-    # MCPServerStdio('uvx', args=["--from","duckduckgo-mcp-server-maintained","duckduckgo-mcp-server"])
-    # MCPServerStdio('duckduckgo-mcp-server-mcp')]
-    # MCPServerStdio('uvx', args=["mcp-google-cse"],env={"API_KEY":"bc5eb2118ae57f69eb453763eacceba216dfed55","ENGINE_ID":"4696f404c2f874169"}),
-    MCPServerStdio('uv', args=["--directory","/sfs/gpfs/tardis/home/dm8qs/mcp-google-cse","run","mcp-google-cse"],env={"API_KEY":"bc5eb2118ae57f69eb453763eacceba216dfed55","ENGINE_ID":"4696f404c2f874169"}),
-    MCPServerStdio('uvx', ["mcp-server-fetch"]),
-]
-
 class MaterialClassificatonAgentDeps(BaseModel):
   """
   Dependencies for the Material Classification Agent.
   """
   materials: Union[dict[str, ResearchMaterial], None] = Field(default=None, description="A dictionary of materials to classify, keyed by material name or identifier.")  
 
-async def get_material_classification_agent(options: ResearchPipelineOptions, mcp_servers: list = default_mcp_servers):
+async def get_material_classification_agent(options: ResearchPipelineOptions, mcp_servers: list|None = None):
     provider = OpenAIProvider(base_url=options.llm_api_url, api_key=options.llm_api_key)
     llm_model = OpenAIModel(options.model_name, provider=provider)
+    
+    if mcp_servers is None:
+      mcp_servers = [
+        MCPServerStreamableHTTP(url="http://127.0.0.1:8000/mcp/"), # HS Code semantic search (H6 rollup)
+        MCPServerStreamableHTTP(url="http://127.0.0.1:8001/mcp/"), # Research Content Semantic Search
+        MCPServerStdio('wikipedia-mcp', ["--transport", "stdio", "--log-level", "INFO", "--enable-cache"] + (["--access-token", options.wikimedia_access_token] if options.wikimedia_access_token is not None else [])),
+        MCPServerStdio('uvx', args=["mcp-google-cse"], env={"API_KEY": options.google_api_key, "ENGINE_ID": options.google_custom_search_engine_id}),
+        MCPServerStdio('uvx', ["mcp-server-fetch"]),
+      ]
     
     instructions = """
 You are a trade classification agent specializing in materials science and international trade standards. 

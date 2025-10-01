@@ -21,7 +21,7 @@ dependencies=[
     "pandas>=2.2.3",
     "jinja2",
     "uvenv",
-    "wikipedia-mcp>=1.5.2",
+    "wikipedia-mcp>=1.6.0",
     "sentence-transformers>=4.1.0",
     "duckduckgo-mcp-server>=0.1.1",
     "mcp-simple-arxiv>=0.2.2",

@@ -1,16 +1,11 @@
-dysprosium
-neodymium
-yttrium
-cerium
+boron
+rare_earth_metals dysprosium,neodymium,yttrium,scandium 
 gallium
 germanium
 iridium
 phosphorus
-silicon
+silicon ultrapure silicon
 tantalum
-neon
-krypton
-xenon
-gallium Nitride
-indium_phosphide
+rare_gasses neon,krypton,xenon
+gn_ip gallium Nitride & indium_phosphide GaN InP
 photoresist_polymers

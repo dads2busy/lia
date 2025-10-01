@@ -186,6 +186,9 @@ class ResearchPipelineOptions(BaseModel):
     model_name: str = "llama3.3"
     llm_api_url: str | None = "http://localhost:11434/v1"
     llm_api_key: str = ""
+    google_api_key: str | None = None
+    google_custom_search_engine_id: str | None = None
+    wikimedia_access_token: str | None = None
     research_folder: Union[str,Path] = "."
     reference_cache_folder: str|None = None
     generate_materials: bool = True
