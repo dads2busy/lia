@@ -19,7 +19,7 @@ async def get_url_scorer_agent(options:ResearchPipelineOptions, mcp_servers:list
     llm_model = OpenAIModel(options.model_name,provider=provider)
     if mcp_servers is None:
       mcp_servers = [
-        MCPServerStdio('uvx', args=["mcp-google-cse"], env={"API_KEY": options.google_api_key, "ENGINE_ID": options.google_custom_search_engine_id}),
+        MCPServerStdio('uvx', args=["mcp-google-cse"], env={"API_KEY": options.google_api_key, "ENGINE_ID": options.google_custom_search_engine_id,"RESULT_NUM":"50"}),
         MCPServerStdio('uvx', ["mcp-server-fetch"]),
       ]   
     instructions = """

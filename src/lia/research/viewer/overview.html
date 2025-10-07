@@ -1,0 +1,466 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <title>Directed Bipartite Hypergraph Viewer</title>
+  <script src="https://d3js.org/d3.v7.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
+  <style>
+    body { margin: 0; font-family: sans-serif; }
+    #app-container { display: flex; flex-direction: column; height: 100vh; }
+    #tab-buttons { display: flex; background: #f0f0f0; border-bottom: 1px solid #ccc; }
+    #tab-buttons button { padding: 0.6em 1em; border: none; background: #f0f0f0; cursor: pointer; }
+    #tab-buttons button.active { background: #ddd; font-weight: bold; }
+    #main { display: flex; flex: 1; overflow: hidden; }
+    #tab-contents { flex: 1; overflow: hidden; position: relative; }
+    .tab-content { display: none; height: 100%; overflow-y: auto; padding: 1em; }
+    .tab-content.active { display: block; }
+    #detail-panel { width: 350px; background: #fafafa; border-left: 1px solid #ccc; padding: 1em; overflow-y: auto; display: none; }
+    svg { width: 100%; height: 100%; }
+    .node circle { stroke: #333; stroke-width: 1.5px; }
+    .material { fill: #0074D9; }
+    .process { stroke: #333; stroke-width: 1px; }
+    .material.mined circle { stroke-width: 4; stroke: #000; }
+    .link { fill: none; stroke-opacity: 0.9; }
+    .link.dashed { stroke-dasharray: 4; }
+    table { width: 100%; border-collapse: collapse; }
+    th, td { padding: 4px 6px; border: 1px solid #ccc; }
+    tr:hover { background: #eef; cursor: pointer; }
+    .color-box { display: inline-block; width: 12px; height: 12px; margin-right: 6px; border: 1px solid #999; }
+    a.ref-link { color: blue; text-decoration: underline; cursor: pointer; }
+    .highlight { stroke: orange !important; stroke-width: 4px !important; }
+    .zoom-container { width: 100%; height: 100%; }
+  </style>
+</head>
+<body>
+<div id="app-container">
+  <div id="tab-buttons">
+    <button onclick="switchTab('config')">Research Config</button>
+    <button onclick="switchTab('materials')">Materials</button>
+    <button onclick="switchTab('processes')">Processes</button>
+    <button onclick="switchTab('network')">Network</button>
+  </div>
+  <div id="main">
+    <div id="tab-contents">
+      <div id="tab-config" class="tab-content"></div>
+      <div id="tab-materials" class="tab-content"></div>
+      <div id="tab-processes" class="tab-content"></div>
+      <div id="tab-network" class="tab-content">
+        <div id="network-container" class="zoom-container"></div>
+      </div>
+    </div>
+    <div id="detail-panel"></div>
+  </div>
+</div>
+<script>
+const hsSections = [
+  { section: 1, hs_codes: [1,5], name: "LIVE ANIMALS; ANIMAL PRODUCTS", color: "#1F77B4" },
+  { section: 2, hs_codes: [6,14], name: "VEGETABLE PRODUCTS", color: "#FF7F0E" },
+  { section: 3, hs_codes: [15,15], name: "ANIMAL OR VEGETABLE FATS AND OILS", color: "#2CA02C" },
+  { section: 4, hs_codes: [16,24], name: "PREPARED FOODSTUFFS; BEVERAGES; TOBACCO", color: "#D62728" },
+  { section: 5, hs_codes: [25,27], name: "MINERAL PRODUCTS", color: "#A9A9A9" },
+  { section: 6, hs_codes: [28,38], name: "PRODUCTS OF THE CHEMICAL OR ALLIED INDUSTRIES", color: "#008000" },
+  { section: 7, hs_codes: [39,40], name: "PLASTICS AND ARTICLES THEREOF; RUBBER", color: "#FFA500" },
+  { section: 8, hs_codes: [41,43], name: "RAW HIDES AND SKINS, LEATHER, FURSKINS", color: "#7F7F7F" },
+  { section: 9, hs_codes: [44,46], name: "WOOD AND ARTICLES OF WOOD; BASKETWARE", color: "#BCBD22" },
+  { section: 10, hs_codes: [47,49], name: "PULP, PAPER, PAPERBOARD; ARTICLES THEREOF", color: "#17BECF" },
+  { section: 11, hs_codes: [50,63], name: "TEXTILES AND TEXTILE ARTICLES", color: "#AEC7E8" },
+  { section: 12, hs_codes: [64,67], name: "FOOTWEAR, HEADGEAR, UMBRELLAS, ETC.", color: "#FFBB78" },
+  { section: 13, hs_codes: [68,70], name: "ARTICLES OF STONE, CERAMIC PRODUCTS, GLASSWARE", color: "#D3D3D3" },
+  { section: 14, hs_codes: [71,71], name: "PRECIOUS METALS, STONES, JEWELLERY", color: "#FF9896" },
+  { section: 15, hs_codes: [72,83], name: "BASE METALS AND ARTICLES OF BASE METAL", color: "#87CEEB" },
+  { section: 16, hs_codes: [84,85], name: "MACHINERY & ELECTRICAL EQUIPMENT", color: "#C49C94" },
+  { section: 17, hs_codes: [86,89], name: "TRANSPORTATION EQUIPMENT", color: "#F7B6D2" },
+  { section: 18, hs_codes: [90,92], name: "PRECISION / MEDICAL / OPTICAL INSTRUMENTS", color: "#C7C7C7" },
+  { section: 19, hs_codes: [93,93], name: "ARMS AND AMMUNITION", color: "#DBDB8D" },
+  { section: 20, hs_codes: [94,96], name: "MISCELLANEOUS MANUFACTURED ARTICLES", color: "#9EDAE5" },
+  { section: 21, hs_codes: [97,97], name: "WORKS OF ART, COLLECTORS’ PIECES AND ANTIQUES", color: "#FF7F50" },
+];
+	
+function switchTab(id) {
+  document.querySelectorAll('.tab-content').forEach(el => el.classList.remove('active'));
+  document.querySelector(`#tab-${id}`).classList.add('active');
+  document.querySelectorAll('#tab-buttons button').forEach(b => b.classList.remove('active'));
+  document.querySelector(`#tab-buttons button[onclick*="${id}"]`).classList.add('active');
+}
+
+function getProcessColor(score) {
+  if (score == null) return "#ccc";
+  if (score <= 0.49) return d3.interpolateRgb("red", "orange")(score / 0.49);
+  return d3.interpolateRgb("lightgreen", "green")((score - 0.5) / 0.5);
+}
+
+function hashUrl(url) {
+  const encoder = new TextEncoder();
+  const data = encoder.encode(url);
+  return crypto.subtle.digest('MD5', data).then(buf => {
+    return Array.from(new Uint8Array(buf)).map(b => b.toString(16).padStart(2, '0')).join('');
+  });
+}
+
+function renderConfig(cfg) {
+  document.getElementById('tab-config').innerHTML = `<pre class="json-block">${JSON.stringify(cfg, null, 2)}</pre>`;
+}
+
+function renderMaterials(materials) {
+  const container = document.getElementById('tab-materials');
+  container.innerHTML = '<h3>Materials</h3>';
+  const table = document.createElement('table');
+  table.innerHTML = `<thead><tr><th>HS Code</th><th>Name</th><th>HS Description</th></tr></thead>`;
+  const tbody = document.createElement('tbody');
+  Object.values(materials).sort((a, b) => a.hs_code.localeCompare(b.hs_code)).forEach(mat => {
+    const row = document.createElement('tr');
+    row.innerHTML = `<td>${mat.hs_code}</td><td>${mat.name}</td><td>${mat.hs_description || ''}</td>`;
+    row.onclick = () => showMaterialDetail(mat);
+    tbody.appendChild(row);
+  });
+  table.appendChild(tbody);
+  container.appendChild(table);
+}
+
+function renderProcesses(processes) {
+  const container = document.getElementById('tab-processes');
+  container.innerHTML = '<h3>Processes</h3>';
+  const table = document.createElement('table');
+  table.innerHTML = `<thead><tr><th>ID</th><th>Description</th></tr></thead>`;
+  const tbody = document.createElement('tbody');
+  Object.values(processes).forEach(proc => {
+    const row = document.createElement('tr');
+    row.innerHTML = `<td>${proc.id}</td><td>${proc.description || ''}</td>`;
+    row.onclick = () => showProcessDetail(proc);
+    tbody.appendChild(row);
+  });
+  table.appendChild(tbody);
+  container.appendChild(table);
+}
+
+function showMaterialDetail(mat) {
+  const panel = document.getElementById('detail-panel');
+  panel.style.display = 'block';
+  const uses = (mat.primary_uses || []).map(u => `<li>${u}</li>`).join('');
+  const linkedProcesses = (window.state?.processes ? Object.values(window.state.processes) : []).filter(p =>
+    (p.precursors || []).some(pre => pre.hs_code === mat.hs_code) ||
+    (p.products || []).some(prod => prod.hs_code === mat.hs_code)
+  ).map(p => {
+    const role = (p.precursors || []).some(pre => pre.hs_code === mat.hs_code) ? 'Prec.' : 'Prod.';
+    return `<li><a href="#" onclick="navigateToProcess('${p.id}')">${p.id} (${role})</a></li>`;
+  }).join('');
+
+  panel.innerHTML = `
+    <h3>Material Details</h3>
+    <p><strong>Name:</strong> ${mat.name}</p>
+    <p><strong>HS Code:</strong> ${mat.hs_code}</p>
+    <p><strong>HS Description:</strong> ${mat.hs_description || ''}</p>
+    <p><strong>Mined:</strong> ${mat.mined ? 'Yes' : 'No'}</p>
+    <p><strong>Primary Uses:</strong><ul>${uses}</ul></p>
+    <p><strong>Processes:</strong><ul>${linkedProcesses}</ul></p>
+  `;
+}
+function getHSColor(hsCode) {
+  if (!hsCode) return "#cccccc";
+  const prefix = parseInt(hsCode.substring(0, 2), 10);
+
+  // find which section matches
+  for (const sec of hsSections) {
+    const [start, end] = sec.hs_codes;
+    if (prefix >= start && prefix <= end) {
+      return sec.color;
+    }
+  }
+  return "#cccccc"; // fallback if no match
+}
+
+function renderLegend(state) {
+  const container = document.getElementById('tab-network');
+  let legend = document.getElementById('legend');
+  if (!legend) {
+    legend = document.createElement('div');
+    legend.id = 'legend';
+    legend.style.position = 'fixed';
+    legend.style.bottom = '0';
+    legend.style.left = '0';
+    legend.style.width = '100%';
+    legend.style.background = '#fff';
+    legend.style.borderTop = '1px solid #ccc';
+    legend.style.padding = '10px';
+    legend.style.display = 'grid';
+    legend.style.gridTemplateColumns = '1fr 1fr';
+    legend.style.gap = '10px';
+    legend.style.fontSize = '12px';
+    legend.style.boxShadow = '0 -2px 5px rgba(0, 0, 0, 0.1)';
+    container.appendChild(legend);
+  }
+
+  const hsPrefixesInGraph = Array.from(new Set(Object.values(state.materials).map(m => m.hs_code.slice(0, 2))));
+  const hsLegendItems = hsPrefixesInGraph
+    .map(p => {
+      const ip = parseInt(p);
+      const sec = hsSections.find(s => s.hs_codes && ip >= s.hs_codes[0] && ip <= s.hs_codes[1]);
+      console.log("sec: ", sec)
+      return sec
+      return { prefix: p, name: sec.name, color: sec.color, hs_codes: sec.hs_codes };
+    })
+    .filter((item, index, self) => item && self.findIndex(i => i.name === item.name) === index)
+    .map(sec => `<div class="legend-item"><span class="color-box" style="background: ${sec.color};"></span>${sec.name} (HS Codes: ${sec.hs_codes[0]}-${sec.hs_codes[1]})</div>`)
+    .join('');
+
+  const processLegendItems = `
+    <div><span class="color-box" style="background: ${d3.interpolateRgb("red", "orange")(0.25)};"></span>Low Process Score</div>
+    <div><span class="color-box" style="background: ${d3.interpolateRgb("lightgreen", "green")(0.75)};"></span>High Process Score</div>
+    <div><span class="color-box" style="background: #ccc;"></span>Unscored Process</div>
+  `;
+
+  legend.innerHTML = `
+    <div style="grid-column: span 2; text-align: center; font-weight: bold;">Material Classification Legend</div>
+    <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 10px;">
+      ${hsLegendItems || '<p>No materials in graph.</p>'}
+    </div>
+    <div style="grid-column: span 2; text-align: center; font-weight: bold; margin-top: 10px;">Process Legend</div>
+    <div>
+      ${processLegendItems}
+    </div>
+  `;
+}
+
+
+function showDetail(obj,type){
+	if (type=="material"){
+		showMaterialDetail(obj);
+	}else if (type=="process"){
+		showProcessDetail(obj);	
+	}
+}
+
+function renderNetwork(state) {
+  const container = document.getElementById('network-container');
+  container.innerHTML = '';
+  const svg = d3.select(container).append('svg')
+    .attr('width', '100%')
+    .attr('height', '100%');
+
+  const width = container.clientWidth;
+  const height = container.clientHeight;
+
+  const g = svg.append('g');
+  const zoom = d3.zoom().on('zoom', (event) => g.attr('transform', event.transform));
+  svg.call(zoom);
+
+  const nodes = [];
+  const links = [];
+  const left = {};   // materials
+  const right = {};  // processes
+
+  const materialColorScale = d3.scaleOrdinal(d3.schemeCategory10);
+  const hsPrefixes = Array.from(new Set(Object.values(state.materials).map(m => m.hs_code.slice(0, 2))));
+  const hsColorMap = new Map(hsPrefixes.map((p, i) => [p, materialColorScale(i)]));
+
+  const materials = Object.values(state.materials);
+  const processes = Object.values(state.processes);
+
+  materials.forEach((m, i) => {
+    const y = i * 50 + 40;
+    left[m.hs_code] = {
+      id: m.hs_code,
+      name: m.name,
+      hs_prefix: m.hs_code.slice(0, 2),
+      x: width - 300,
+      y,
+      type: 'material',
+      mined: m.mined,
+      raw: m
+    };
+    nodes.push(left[m.hs_code]);
+  });
+
+  processes.forEach((p, i) => {
+    const y = i * 50 + 40;
+    right[p.id] = {
+      id: p.id,
+      name: p.id,
+      description: p.description,
+      x: 300,
+      y,
+      type: 'process',
+      score: p.process_score,
+      scale: p.scale || 0.5,
+      raw: p
+    };
+    nodes.push(right[p.id]);
+
+    (p.precursors || []).forEach(pr => {
+      if (left[pr.hs_code]) {
+        links.push({
+          source: pr.hs_code,
+          target: p.id,
+          role: 'precursor',
+          scale: Math.min(1.0, p.scale || 0.5)
+        });
+      }
+    });
+
+    (p.products || []).forEach(pr => {
+      if (left[pr.hs_code]) {
+        links.push({
+          source: p.id,
+          target: pr.hs_code,
+          role: 'product',
+          scale: Math.min(1.0, p.scale || 0.5)
+        });
+      }
+    });
+  });
+  // Define arrow markers
+  svg.append('defs').selectAll('marker')
+    .data(links.map(d => `${d.source}-${d.target}`)) // Generate unique names using source and target
+    .join('marker')
+    .attr('id', d => `arrow-${d}`)
+    .attr('viewBox', '0 -2.5 5 5') // Scale down the viewBox
+    .attr('refX', 5) // Adjust refX proportionally to the new size
+    .attr('refY', 0)
+    .attr('markerWidth', 3) // Halve the markerWidth
+    .attr('markerHeight', 3) // Halve the markerHeight
+    .attr('orient', 'auto')
+    .append('path')
+    .attr('d', 'M0,-2.5L5,0L0,2.5') // Adjust the path to match the new size
+    .attr('fill', d => {
+      const link = links.find(l => `${l.source}-${l.target}` === d);
+      return link?.role === 'precursor' ? 'blue' : 'green';
+    });
+
+  g.selectAll('line.link')
+    .data(links)
+    .join('line')
+    .attr('class', 'link')
+    .attr('x1', d => left[d.source]?.x || right[d.source]?.x)
+    .attr('y1', d => left[d.source]?.y || right[d.source]?.y)
+    .attr('x2', d => {
+      const target = left[d.target] || right[d.target];
+      const dx = target.x - (left[d.source]?.x || right[d.source]?.x);
+      const dy = target.y - (left[d.source]?.y || right[d.source]?.y);
+      const distance = Math.sqrt(dx * dx + dy * dy);
+      return target.x - (dx / distance) * 18; // Adjust for target node radius
+    })
+    .attr('y2', d => {
+      const target = left[d.target] || right[d.target];
+      const dx = target.x - (left[d.source]?.x || right[d.source]?.x);
+      const dy = target.y - (left[d.source]?.y || right[d.source]?.y);
+      const distance = Math.sqrt(dx * dx + dy * dy);
+      return target.y - (dy / distance) * 18; // Adjust for target node radius
+    })
+    .attr('stroke', d => d.role === 'precursor' ? 'blue' : 'green')
+    .attr('stroke-width', d => 4 * d.scale)
+    .attr('marker-end', d => `url(#arrow-${d.source}-${d.target})`);
+
+  const nodeGroups = g.selectAll('g.node')
+    .data(nodes)
+    .join('g')
+    .attr('class', d => `node ${d.type}`)
+    .attr('transform', d => `translate(${d.x},${d.y})`)
+    // .on('mouseover', (event, d) => {
+    //   showDetail(d.raw, d.type);
+    // })
+    .on('click', (event, d) => {
+      showDetail(d.raw, d.type);
+    });
+
+  nodeGroups.append('circle')
+    .attr('r', 18)
+    .attr('fill', d => {
+      if (d.type === 'material') {
+        return getHSColor(d.id);
+      }
+      if (d.score == null) return '#ccc';
+      return d.score <= 0.49
+        ? d3.interpolateRgb("red", "orange")(d.score / 0.49)
+        : d3.interpolateRgb("lightgreen", "green")((d.score - 0.5) / 0.5);
+    })
+    .attr('stroke', d => d.mined ? '#000' : '#333')
+    .attr('stroke-width', d => d.mined ? 3 : 1.5);
+
+  // Label inside material node (HS code)
+  nodeGroups.filter(d => d.type === 'material')
+    .append('text')
+    .text(d => d.id)
+    .attr('text-anchor', 'middle')
+    .attr('y', 5)
+    .style('font-size', '10px')
+    .style('fill', 'black');
+
+  // Label left of material node (name)
+  nodeGroups.filter(d => d.type === 'material')
+    .append('text')
+    .text(d => d.name)
+    .attr('x', -25)
+    .attr('text-anchor', 'end')
+    .attr('alignment-baseline', 'middle')
+    .style('font-size', '10px')
+    .style('fill', 'black');
+
+  // Label right of process node
+  nodeGroups.filter(d => d.type === 'process')
+    .append('text')
+    .text(d => d.name)
+    .attr('x', 25)
+    .attr('text-anchor', 'start')
+    .attr('alignment-baseline', 'middle')
+    .style('font-size', '10px');
+
+  nodeGroups.append('title')
+    .text(d => d.type === 'material' ? d.name : d.description);
+}
+
+function navigateToProcess(pid) {
+  switchTab('processes');
+  const row = [...document.querySelectorAll('#tab-processes table tr')].find(r => r.innerText.includes(pid));
+  if (row) row.scrollIntoView({ behavior: 'smooth', block: 'center' });
+}
+
+function showProcessDetail(proc) {
+  const panel = document.getElementById('detail-panel');
+  panel.style.display = 'block';
+  const precursors = (proc.precursors || []).map(p => {
+    const mat = window.state.materials?.[p.hs_code];
+    return mat ? `<li><a href="#" onclick="showMaterialDetail(window.state.materials['${mat.hs_code}'])">${mat.name} (${mat.hs_code})</a></li>` : `<li>${p.hs_code}</li>`;
+  }).join('');
+  const products = (proc.products || []).map(p => {
+    const mat = window.state.materials?.[p.hs_code];
+    return mat ? `<li><a href="#" onclick="showMaterialDetail(window.state.materials['${mat.hs_code}'])">${mat.name} (${mat.hs_code})</a></li>` : `<li>${p.hs_code}</li>`;
+  }).join('');
+  const references = (proc.references || []).map(ref => {
+    return `<li>
+      <a href="${ref.url}" target="_blank">${ref.url}</a><br>
+      Source Score: ${ref.source_quality_score ?? 'unscored'}<br>
+      Content Score: ${ref.content_quality_score ?? 'unscored'}<br>
+      ${ref.content_quality_reason ? `Score Reason: ${ref.content_quality_reason}` : ''}
+    </li>`;
+  }).join('');
+  panel.innerHTML = `
+    <h3>Process Details</h3>
+    <p><strong>ID:</strong> ${proc.id}</p>
+    <p><strong>Description:</strong> ${proc.description || ''}</p>
+    <p><strong>Scale:</strong> ${proc.scale || 'N/A'}</p>
+    <p><strong>Score:</strong> ${proc.process_score ?? 'Not Scored'}</p>
+    <p><strong>Precursors:</strong><ul>${precursors}</ul></p>
+    <p><strong>Products:</strong><ul>${products}</ul></p>
+    <p><strong>References:</strong><ul>${references}</ul></p>
+  `;
+}
+
+async function loadData() {
+  const config = await fetch('./research_config.json').then(r => r.json());
+  const state = await fetch('./research_state.json').then(r => r.json());
+  window.state = state;
+  renderConfig(config);
+  renderMaterials(state.materials);
+  renderProcesses(state.processes);
+  renderNetwork(state);
+  renderLegend(state);
+  switchTab('config');
+}
+
+// renderNetwork function unchanged from prior version...
+
+loadData();
+</script>
+</body>
+</html>

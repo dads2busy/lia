@@ -159,8 +159,8 @@ def evaluate_references(references, minimum_process_references, distinct_domains
             all_reviewed = False
             unreviewed_count += 1
 
-    print(f"   - Total Reviewed References: {len(reviewed_refs)}")
-    print(f"   - Total Unreviewed References: {unreviewed_count}")
+    # print(f"   - Total Reviewed References: {len(reviewed_refs)}")
+    # print(f"   - Total Unreviewed References: {unreviewed_count}")
     found_required_distinct_domains = False
     top_refs = []
 
@@ -418,16 +418,25 @@ class generate_material_processes(BaseNode[ResearchPipelineState]):
     async def run(self, ctx: GraphRunContext) -> Union[End,'merge_duplicate_processes']:
         opts = ctx.state.options
         
-        print("[generate_material_processes] start")
+        print(f"[generate_material_processes (Expansion Phase {ctx.state.expansion_passes}/{opts.maximum_material_expansion_rounds})] start")
         if not opts.generate_processess:
-            print("\t[generate_material_processes] Skipping process research as requested.")
+            print(f"[generate_material_processes (Expansion Phase {ctx.state.expansion_passes}/{opts.maximum_material_expansion_rounds})] Skipping process research as requested.")
             if opts.solo:
                 return End(ctx.state)
             return merge_duplicate_processes()
         
         for hscode,material in ctx.state.materials.items():
+            if material.mined:
+                print(f"[generate_material_processes (Expansion Phase {ctx.state.expansion_passes}/{opts.maximum_material_expansion_rounds})] Skipping process generation for {material.name} ({hscode}) as it is marked as mined.")
+                continue
+            
             mode="create"
-            print(f"\t[generate_material_processes] Researching processes for material: {material.name} ({hscode})")
+            print(f"[generate_material_processes (Expansion Phase {ctx.state.expansion_passes}/{opts.maximum_material_expansion_rounds})] Researching processes for material: {material.name} ({hscode})")
+            
+            if material.mined:
+                print(f"[generate_material_processes (Expansion Phase {ctx.state.expansion_passes}/{opts.maximum_material_expansion_rounds})] Skipping process generation for {material.name} ({hscode}) as it is marked as mined.")
+                continue
+            
             agent = ctx.state.agents.get("material_manufacturing_agent")
             prompt = f"""
 Please identify the key processes, precursors, and products for manufacturing the material "{material.name}" (HS Code: {hscode}). 
@@ -439,10 +448,10 @@ The material is also known by the following aliases:
         
             prompt += "\n"
             material_processes = ctx.state.get_processes_for_material(hscode)    
-            print(f"\t[generate_material_processes] Material Processes: {material_processes}")
+            print(f"[generate_material_processes (Expansion Phase {ctx.state.expansion_passes}/{opts.maximum_material_expansion_rounds})] Material Processes: {material_processes}")
             
             all_scored=True
-            print(f"\t[generate_material_processes] Checking {hscode} for processes to see if they have all been scored")
+            print(f"[generate_material_processes (Expansion Phase {ctx.state.expansion_passes}/{opts.maximum_material_expansion_rounds})] Checking {hscode} for processes to see if they have all been scored")
             if len(material_processes) > 0:
                 for p in material_processes:
                     pid= p.id
@@ -451,14 +460,14 @@ The material is also known by the following aliases:
                         all_scored = False
                         break
 
-            print(f"\t[generate_material_processes] Material has {len(material_processes)} existing processes.  All scored: {all_scored}")
+            print(f"[generate_material_processes (Expansion Phase {ctx.state.expansion_passes}/{opts.maximum_material_expansion_rounds})] Material has {len(material_processes)} existing processes.  All scored: {all_scored}")
             if len(material_processes)>0 and all_scored:
-                print(f"\t[generate_material_processes] Skipping process generation for {material.name} ({hscode}) as there is at least one process and all processes have been scored.")
+                print(f"[generate_material_processes (Expansion Phase {ctx.state.expansion_passes}/{opts.maximum_material_expansion_rounds})] Skipping process generation for {material.name} ({hscode}) as there is at least one process and all processes have been scored.")
                 continue
 
             if len(material_processes)>0:
                 mode="edit"
-                print("\t[generate_material_processes] Found existing processes for material, switching to edit mode.")
+                print(f"[generate_material_processes (Expansion Phase {ctx.state.expansion_passes}/{opts.maximum_material_expansion_rounds})] Found existing processes for material, switching to edit mode.")
                 for process in material_processes:
                     top_refs, all_reviewed, found_required_distinct_domains,unreviewed_count = evaluate_references(
                         references=process.references,
@@ -522,13 +531,12 @@ The material is also known by the following aliases:
                 prompt += "Verify that precursors and products represented in the references FOR THIS SPECIFIC PROCESS are accurate and complete.\n"
                 prompt += "Address actions identfied in notes in the form ** Process <process id> ... **"
             else:
-                print("No existing processes found for material, switching to create mode.")
                 prompt += "No existing processes found for this material. Please identify the key processes, precursors, and products for manufacturing the material.\n"
                 prompt += "Ensure that the suggested precursors and products using the correct HS Codes for the form of the material required for the specific process.\n"
                 prompt += "Verify that the representation of the process scale is accurate and that the process description is clear and complete.\n"
                 mode= "create"
             try:
-                print("\t[generate_material_processes] Prompting LLM for material processes...")
+                print(f"[generate_material_processes (Expansion Phase {ctx.state.expansion_passes}/{opts.maximum_material_expansion_rounds})] Prompting LLM for material processes...")
                 # print(f"\t[generate_material_processes] Prompt for Generating/Editing Material Processes:\n{prompt}")
                 result = await agent.run(
                     prompt,
@@ -537,7 +545,7 @@ The material is also known by the following aliases:
                 )
                 mod_instructions = result.output
 
-                print(f"\t[generate_material_processes] Processing {len(mod_instructions)} modification instructions for material {material.name} ({hscode})")
+                print(f"[generate_material_processes (Expansion Phase {ctx.state.expansion_passes}/{opts.maximum_material_expansion_rounds})] Processing {len(mod_instructions)} modification instructions for material {material.name} ({hscode})")
                 
                 for instruction in mod_instructions:
                     process_instruction(instruction, ctx.state)
@@ -546,16 +554,16 @@ The material is also known by the following aliases:
                         save_state(ctx.state.options.research_folder,ctx.state, silent=True)  
                         
             except UsageLimitExceeded as e:
-                print(f"\t[generate_material_processes] Usage limit exceeded while researching processes for material {material.name} ({hscode}): {e}")
+                print(f"[generate_material_processes (Expansion Phase {ctx.state.expansion_passes}/{opts.maximum_material_expansion_rounds})] Usage limit exceeded while researching processes for material {material.name} ({hscode}): {e}")
                 continue
             except Exception as e:
-                print(f"\t[generate_material_processes] Error generating/researching the processes for material {material.name} ({hscode}): {e}")  
+                print(f"[generate_material_processes (Expansion Phase {ctx.state.expansion_passes}/{opts.maximum_material_expansion_rounds})] Error generating/researching the processes for material {material.name} ({hscode}): {e}")  
                 continue
                     
             if ctx.state.options.save_state:    
                 save_state(ctx.state.options.research_folder,ctx.state, silent=True)  
         
-        print(f"\t[generate_material_processes] Purging processes below scale threshold ({opts.purge_scale_threshold}).")
+        print(f"[generate_material_processes (Expansion Phase {ctx.state.expansion_passes}/{opts.maximum_material_expansion_rounds})] Purging processes below scale threshold ({opts.purge_scale_threshold}).")
         ctx.state.purge_for_scale(scale_threshold=opts.purge_scale_threshold, dry_run=opts.purge_dry_run)
 
                                 
@@ -647,6 +655,10 @@ class review_material_processes(BaseNode[ResearchPipelineState]):
             if not process.references:
                 print(f"\t[review_material_processes]No references found for process: {process.description}")
                 requires_additional_research = True
+                continue
+
+            if process.process_score is not None and process.process_score >= ctx.state.options.process_score_threshold:    
+                print(f"\t[review_material_processes]Process already has a score of {process.process_score} which meets or exceeds the threshold of {ctx.state.options.process_score_threshold}. Skipping review.")
                 continue
 
             refReplacements = []
@@ -790,14 +802,14 @@ class expand_process_materials(BaseNode[ResearchPipelineState]):
                 else:
                     prompt += f"  - {precursor}\n"
             
-            
             replacement_precursors = []
             for precursor in process.precursors:
                 if isinstance(precursor, SuggestedMaterialReference):
                     print(f"\t\t[expand_process_materials] Precursor is already a MaterialReference: {precursor.name}")
-
+                    print(f"\t\t[expand_process_materials] Expansion filter: {opts.expansion_filter}")
                     if precursor.hs_code not in ctx.state.materials:
-                        if opts.expansion_filter is not None and precursor.hs_code in opts.expansion_filter:
+                        print(f"\t\t[expand_process_materials] Precursor {precursor.name} ({precursor.hs_code}) not found in materials.")
+                        if opts.expansion_filter is None or (opts.expansion_filter is not None and precursor.hs_code in opts.expansion_filter):
                             print(f"\t\t[expand_process_materials] Precursor {precursor.name} ({precursor.hs_code}) not found in materials. Generating new material.")
                             prompt += f"\n\nPlease generate a ResearchMaterial object for the precursor '{precursor.name}' with suggested HS Code {precursor.hs_code}.\nThis is ONLY a suggested HS Code, so if you know of a more appropriate HS Code for this material, please use that instead.\n"                        
                             result = await agent.run(
@@ -827,55 +839,56 @@ class expand_process_materials(BaseNode[ResearchPipelineState]):
                     prompt += f"  - {precursor}\n"
                     replacement_precursors.append(precursor)    
 
-            replacement_products = []
-            for product in process.products:
-                if isinstance(product, SuggestedMaterialReference):
-                    print(f"\t\t[expand_process_materials] Product is already a MaterialReference: {product.name}")
+            # replacement_products = []
+            # for product in process.products:
+            #     if isinstance(product, SuggestedMaterialReference):
+            #         print(f"\t\t[expand_process_materials] Product is already a MaterialReference: {product.name}")
 
-                    if product.hs_code not in ctx.state.materials:
-                        if opts.expansion_filter is not None and product.hs_code in opts.expansion_filter:
-                            print(f"\t\t[expand_process_materials] Product {product.name} ({product.hs_code}) not found in materials. Generating new material.")
-                            prompt += f"Please generate a ResearchMaterial object for the product {product.name} with suggested HS Code {product.hs_code}.\n"                        
-                            result = await agent.run(
-                                prompt,
-                                deps=MaterialFinderAgentDeps(
-                                    materials=ctx.state.materials
-                                ),
-                                usage_limits=UsageLimits(request_limit=200)
-                            )  
-                            if not isinstance(result.output, ResearchMaterial):
-                                print(f"\t\t[expand_process_materials] Expected ResearchMaterial, got {type(result.output)}. Skipping.")
-                                replacement_products.append(product)
-                                continue    
-                            else:
-                                print(f"\t\t[expand_process_materials] Adding new material to state: {result.output.name} ({result.output.hs_code})")
-                                ctx.state.add_material(result.output) 
-                                replacement_products.append(MaterialReference(hs_code=result.output.hs_code,name=result.output.name))
-                        else:
-                            print(f"\t\t[expand_process_materials] Product {product.name} ({product.hs_code}) not found in materials. Skipping as it is not in the expansion filter.")
-                            replacement_products.append(product)
-                    else:
-                        replacement_products.append(MaterialReference(hs_code=product.hs_code,name=product.name))
-                elif isinstance(product, MaterialReference):                
-                    prompt += f"  - {product.name} (HS Code: {product.hs_code})\n"
-                    replacement_products.append(product)
+            #         if product.hs_code not in ctx.state.materials:
+            #             if opts.expansion_filter is not None and product.hs_code in opts.expansion_filter:
+            #                 print(f"\t\t[expand_process_materials] Product {product.name} ({product.hs_code}) not found in materials. Generating new material.")
+            #                 prompt += f"Please generate a ResearchMaterial object for the product {product.name} with suggested HS Code {product.hs_code}.\n"                        
+            #                 result = await agent.run(
+            #                     prompt,
+            #                     deps=MaterialFinderAgentDeps(
+            #                         materials=ctx.state.materials
+            #                     ),
+            #                     usage_limits=UsageLimits(request_limit=200)
+            #                 )  
+            #                 if not isinstance(result.output, ResearchMaterial):
+            #                     print(f"\t\t[expand_process_materials] Expected ResearchMaterial, got {type(result.output)}. Skipping.")
+            #                     replacement_products.append(product)
+            #                     continue    
+            #                 else:
+            #                     print(f"\t\t[expand_process_materials] Adding new material to state: {result.output.name} ({result.output.hs_code})")
+            #                     ctx.state.add_material(result.output) 
+            #                     replacement_products.append(MaterialReference(hs_code=result.output.hs_code,name=result.output.name))
+            #             else:
+            #                 print(f"\t\t[expand_process_materials] Product {product.name} ({product.hs_code}) not found in materials. Skipping as it is not in the expansion filter.")
+            #                 replacement_products.append(product)
+            #         else:
+            #             replacement_products.append(MaterialReference(hs_code=product.hs_code,name=product.name))
+            #     elif isinstance(product, MaterialReference):                
+            #         prompt += f"  - {product.name} (HS Code: {product.hs_code})\n"
+            #         replacement_products.append(product)
         
-                else:
-                    print(f"\t\t[expand_process_materials] Product is not a MaterialReference or SuggestedMaterialReference: {product}")
-                    prompt += f"  - {product}\n"
-                    replacement_products.append(product)    
+            #     else:
+            #         print(f"\t\t[expand_process_materials] Product is not a MaterialReference or SuggestedMaterialReference: {product}")
+            #         prompt += f"  - {product}\n"
+            #         replacement_products.append(product)    
 
             print(f"\t[expand_process_materials] Updated precursors for process. len {len(replacement_precursors)} orig: {len(process.precursors)} ")
-            print(f"\t[expand_process_materials] Updated products for process. len {len(replacement_products)} orig: {len(process.products)} ")
+
             if len(replacement_precursors) == len(process.precursors):
                 process.precursors = replacement_precursors 
             else:
                 raise Exception("Mismatch in precursor lengths")
-            
-            if len(replacement_products) == len(process.products):
-                process.products = replacement_products
-            else:
-                raise Exception("Mismatch in product lengths")
+
+            # print(f"\t[expand_process_materials] Updated products for process. len {len(replacement_products)} orig: {len(process.products)} ")      
+            # if len(replacement_products) == len(process.products):
+            #     process.products = replacement_products
+            # else:
+            #     raise Exception("Mismatch in product lengths")
             
             if opts.save_state:
                 save_state(ctx.state.options.research_folder, ctx.state, silent=True)   
@@ -891,19 +904,19 @@ class expand_product_family_materials(BaseNode[ResearchPipelineState]):
     async def run(self, ctx: GraphRunContext) -> Union[End,'generate_material_processes']:
         opts = ctx.state.options 
         print("[expand_product_family_materials] start")
-        if not opts.expand_product_family_materials or ctx.state.expansion_passes >= opts.maximum_material_expansion_rounds:
-            print("Skipping product family material expansion")
-            return End(ctx.state)
-        
+        # if not opts.expand_product_family_materials:
+        #         print("Skipping product family material expansion")
+        #         return End(ctx.state)
+   
         print(f"\t[expand_product_family_materials] Generating Product Family Materials")  
         
-        if opts.generate_processess:
+        if opts.generate_processess and ctx.state.expansion_passes < opts.maximum_material_expansion_rounds:
             ctx.state.expansion_passes += 1
             if opts.reset_reference_reviews_on_material_expansion:
-                print("\t[expand_product_family_materials]Resetting reference reviews on material expansion.")
+                print("\t[expand_product_family_materials] Resetting reference reviews on material expansion.")
                 ctx.state.review_passes = 0
             if not opts.solo:
-                print("\t[expand_product_family_materials] Continuing to generate material processes after expanding product family materials.")
+                print(f"\t[expand_product_family_materials] {ctx.state.expansion_passes}/{opts.maximum_material_expansion_rounds} Continuing to generate material processes after expanding product family materials.")
                 return generate_material_processes()
     
         return End(ctx.state)    
