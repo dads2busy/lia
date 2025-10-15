@@ -898,8 +898,8 @@ class expand_process_materials(BaseNode[ResearchPipelineState]):
             return End(ctx.state)   
         
         return expand_product_family_materials()
-@dataclass
 
+@dataclass
 class expand_product_family_materials(BaseNode[ResearchPipelineState]):
     async def run(self, ctx: GraphRunContext) -> Union[End,'generate_material_processes']:
         opts = ctx.state.options 

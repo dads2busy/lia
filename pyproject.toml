@@ -5,10 +5,11 @@ description = "Lia is a local intelligence assistant"
 authors = [
     {name="Dustin Machi", email="dm8qs@virginia.edu"}
 ]
-requires-python = ">=3.10"
+requires-python = "==3.11.11"
 dependencies=[
-    "typer>=0.9.1",
-    "pydantic>2.0.0",
+    "typer==0.15.3",
+    "click==8.1.7",
+    "pydantic==2.10.6",
     "pydantic_ai==0.3.4",
     "prompt_toolkit",
     "hnswlib",
@@ -23,6 +24,7 @@ dependencies=[
     "uvenv",
     "wikipedia-mcp>=1.6.0",
     "sentence-transformers>=4.1.0",
+    "torch>=1.11.0",
     "duckduckgo-mcp-server>=0.1.1",
     "mcp-simple-arxiv>=0.2.2",
     "duckdb>=1.2.2",
