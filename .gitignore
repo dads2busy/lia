@@ -16,3 +16,6 @@ slurm*.out
 lia.egg-info
 lia.egg-info/
 lia.code-workspace
+src/lia.egg-info/PKG-INFO
+src/lia.egg-info/requires.txt
+src/lia.egg-info/SOURCES.txt

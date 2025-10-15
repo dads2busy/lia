@@ -41,7 +41,7 @@ class RawMaterialsAssemblyState:
 reviewer_mcp_servers = [
     MCPServerStdio('uvx', args=["duckduckgo-mcp-server"]),
     # MCPServerStdio('python', ["-m", "mcp_simple_arxiv"]),
-    MCPServerStdio('wikipedia-mcp', ["--transport", "stdio", "--log-level", "INFO"]),
+    # MCPServerStdio('wikipedia-mcp', ["--transport", "stdio", "--log-level", "INFO", "--enable-cache"] + (["--access-token", options.wikimedia_access_token] if options.wikimedia_access_token is not None else [])),
     # MCPServerStdio('python', ["tools/mcp-server-hscode-sql.py"]),
     MCPServerHTTP(url="http://127.0.0.1:8000/mcp/")
 ]      

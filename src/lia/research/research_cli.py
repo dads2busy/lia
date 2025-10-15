@@ -13,7 +13,7 @@ from lia.util.fetch_reference_content import fetch_references,fetch_content,Refe
 from lia.util.mcp_supervisord import build_supervisord_config,start_supervisor,status_supervisor,stop_supervisor,restart_supervisor,check_all_running
 from lia.research.pipeline_state import ResearchPipelineState,load_state,save_state as save_pipeline_state,backup_state
 
-app = typer.Typer(help="Research Configuration CLI Tool")
+app = typer.Typer(help="Bottom-Up Material Evolution Knowledge Graph Discovery and Research Tool")
 mcp_app = typer.Typer(help="Manage external MCP Server processes for Research")
 app.add_typer(mcp_app,name="mcp")
 

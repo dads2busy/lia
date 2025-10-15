@@ -1,11 +1,7 @@
-boron
-rare_earth_metals dysprosium,neodymium,yttrium,scandium 
+silicon 
 gallium
 germanium
 iridium
 phosphorus
-silicon ultrapure silicon
+silicon
 tantalum
-rare_gasses neon,krypton,xenon
-gn_ip gallium Nitride & indium_phosphide GaN InP
-photoresist_polymers
