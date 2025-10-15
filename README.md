@@ -19,11 +19,10 @@ conda activate lia
 ```
     pip install -e .
 ```
-*Note, I have not fully tested that I have everything currently needed defined in the pyproject.toml.  If you find you need to pip install something. Please add it to the pyproject.toml or let me know (dm8qs@virginia.edu)*
+*Note, I have not fully tested that I have everything currently needed defined in the pyproject.toml.  If you find you need to pip install something. Please add it to the pyproject.toml or file an issue with the project*
 Some/much of the folowing may not be necessary if you start with the conda_env.yml file.
 - Install [ollama](https://ollama.com/download).
-- Install Apptainer (note this generally means running this on Rivanna with module load apptainer or running on a local linux machine with apptainer installed).
-
+- Install Apptainer 
 ## Usage
 ```
 $lia --help
