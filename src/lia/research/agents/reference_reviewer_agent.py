@@ -1,17 +1,20 @@
 from pydantic_ai import Agent
 from pydantic_ai.models.openai import OpenAIModel
 from pydantic_ai.providers.openai import OpenAIProvider
-from pydantic_ai.mcp import MCPServerStdio,MCPServerStreamableHTTP
-from lia.research.config import ResearchConfig
-from lia.research import ResearchPipelineOptions,ContentReviewResult
+
+from lia.research import ContentReviewResult, ResearchPipelineOptions
+from lia.research.agents.generalist_prompts import GENERALIST_SYSTEM_PROMPT
 
 default_mcp_servers = []
 
-async def get_reference_reviewer_agent(options: ResearchPipelineOptions, mcp_servers: list = default_mcp_servers):
+
+async def get_reference_reviewer_agent(
+    options: ResearchPipelineOptions, mcp_servers: list = default_mcp_servers
+):
     provider = OpenAIProvider(base_url=options.llm_api_url, api_key=options.llm_api_key)
     llm_model = OpenAIModel(options.model_name, provider=provider)
-    
-    instructions = """
+
+    specialized_instructions = """
 You are a reference reviewer agent tasked with evaluating whether a given body of content can serve as a valid reference for a specific process description.
 
 You will be provided with:
@@ -37,8 +40,28 @@ Return a JSON object with the following fields:
     "reason": str,  # A brief explanation of the score given.
 }
 ```
-    """
+    """.strip()
 
-    agent = Agent(model=llm_model, output_type=ContentReviewResult, instructions=instructions, retries=5, mcp_servers=mcp_servers)
+    generalist_role_schema_reminder = """
+Task: Given a process description and reference content, score whether the content supports the process.
+Return exactly one JSON object with fields:
+score (float 0.0..1.0) and reason (string).
+Return JSON only; no extra commentary.
+""".strip()
+
+    if getattr(options, "agent_architecture", "multi") == "generalist":
+        instructions = (
+            f"{GENERALIST_SYSTEM_PROMPT}\n\n{generalist_role_schema_reminder}"
+        ).strip()
+    else:
+        instructions = specialized_instructions
+
+    agent = Agent(
+        model=llm_model,
+        output_type=ContentReviewResult,
+        instructions=instructions,
+        retries=5,
+        mcp_servers=mcp_servers,
+    )
 
     return agent

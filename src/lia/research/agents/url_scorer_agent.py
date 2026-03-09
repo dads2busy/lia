@@ -1,28 +1,28 @@
-
-from pydantic_ai import Agent, ModelRetry, RunContext
-from pydantic_ai.usage import UsageLimits
-from pydantic_ai import UsageLimitExceeded
-from pydantic_ai.models.openai import OpenAIModel,OpenAIModelSettings
+from pydantic_ai import Agent
+from pydantic_ai.models.openai import OpenAIModel
 from pydantic_ai.providers.openai import OpenAIProvider
-from pydantic_ai.mcp import MCPServerStdio,MCPServerSSE,MCPServerHTTP,MCPServerStreamableHTTP
-from pydantic import BaseModel,Field
 
-from lia.research.config import ResearchConfig
-from lia.system_prompts.network_agent_system_prompt import network_agent_system_prompt
 from lia.research import ResearchPipelineOptions
-from lia.research import ResearchMaterial
+from lia.research.agents.generalist_prompts import GENERALIST_SYSTEM_PROMPT
 
 
-async def get_url_scorer_agent(options:ResearchPipelineOptions, mcp_servers:list|None = None ):
-    print(f"Get url_scorer_agent: {options}")
-    provider = OpenAIProvider(base_url=options.llm_api_url,api_key=options.llm_api_key)
-    llm_model = OpenAIModel(options.model_name,provider=provider)
+async def get_url_scorer_agent(
+    options: ResearchPipelineOptions, mcp_servers: list[object] | None = None
+):
+    """
+    URL scoring is purely an LLM classification task over the URL string; it does not
+    require external MCP tools. We therefore disable MCP servers by default to avoid
+    MCP context entry failures when launching the pipeline.
+    """
+    # Avoid printing full options here (it may include secrets like API keys/tokens).
+    provider = OpenAIProvider(base_url=options.llm_api_url, api_key=options.llm_api_key)
+    llm_model = OpenAIModel(options.model_name, provider=provider)
+
+    # Disable MCP servers for this agent unless explicitly provided.
     if mcp_servers is None:
-      mcp_servers = [
-        MCPServerStdio('uvx', args=["mcp-google-cse"], env={"API_KEY": options.google_api_key, "ENGINE_ID": options.google_custom_search_engine_id,"RESULT_NUM":"50"}),
-        MCPServerStdio('uvx', ["mcp-server-fetch"]),
-      ]   
-    instructions = """
+        mcp_servers = []
+
+    specialized_instructions = """
 You are a reference validation agent tasked with scoring the credibility and trustworithiness of web pages based on their source URLs.
 You will be given an URL and your task is to score the URL based on its source quality.
 
@@ -77,9 +77,26 @@ Given a **url**, assign a **source_quality_score** between `0.0` and `1.0` (incl
           Sites with <200 words
           4xx/5xx status codes
           Known spam domains
+""".strip()
 
-""" 
-  
-    agent = Agent(model=llm_model,output_type=float,instructions=instructions,retries=5,mcp_servers=mcp_servers)
-   
+    generalist_role_schema_reminder = """
+Task: Given a URL, return a single float source_quality_score between 0.0 and 1.0 (inclusive).
+Return ONLY the number; no JSON object, no prose.
+""".strip()
+
+    if getattr(options, "agent_architecture", "multi") == "generalist":
+        instructions = (
+            f"{GENERALIST_SYSTEM_PROMPT}\n\n{generalist_role_schema_reminder}".strip()
+        )
+    else:
+        instructions = specialized_instructions
+
+    agent = Agent(
+        model=llm_model,
+        output_type=float,
+        instructions=instructions,
+        retries=5,
+        mcp_servers=mcp_servers,
+    )
+
     return agent

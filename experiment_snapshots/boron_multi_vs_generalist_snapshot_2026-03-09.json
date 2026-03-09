@@ -1,0 +1,44 @@
+{
+  "multi": {
+    "state_file": "/tmp/lia_boron_multi/research_state.json",
+    "materials": 8,
+    "processes": 5,
+    "total_refs": 11,
+    "reviewed_refs_numeric": 11,
+    "process_score_stats": {
+      "n": 3,
+      "mean": 0.43333333333333335,
+      "median": 0.4,
+      "min": 0.2,
+      "max": 0.7
+    },
+    "offline_score_stats": {
+      "n": 3,
+      "mean": 0.43333333333333335,
+      "median": 0.4,
+      "min": 0.2,
+      "max": 0.7
+    }
+  },
+  "generalist": {
+    "state_file": "/tmp/lia_boron_generalist/research_state.json",
+    "materials": 4,
+    "processes": 4,
+    "total_refs": 10,
+    "reviewed_refs_numeric": 10,
+    "process_score_stats": {
+      "n": 4,
+      "mean": 0.75,
+      "median": 0.7625,
+      "min": 0.575,
+      "max": 0.9
+    },
+    "offline_score_stats": {
+      "n": 4,
+      "mean": 0.75,
+      "median": 0.7625,
+      "min": 0.575,
+      "max": 0.9
+    }
+  }
+}

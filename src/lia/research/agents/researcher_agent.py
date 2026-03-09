@@ -1,36 +1,64 @@
-
-from pydantic_ai import Agent, ModelRetry, RunContext
-from pydantic_ai.usage import UsageLimits
-from pydantic_ai import UsageLimitExceeded
-from pydantic_ai.models.openai import OpenAIModel,OpenAIModelSettings
+from pydantic import BaseModel
+from pydantic_ai import Agent, RunContext
+from pydantic_ai.mcp import (
+    MCPServerStdio,
+    MCPServerStreamableHTTP,
+)
+from pydantic_ai.models.openai import OpenAIModel
 from pydantic_ai.providers.openai import OpenAIProvider
-from pydantic_ai.mcp import MCPServerStdio,MCPServerSSE,MCPServerHTTP,MCPServerStreamableHTTP
-from pydantic import BaseModel,Field
 
+from lia.research import ResearchMaterial, ResearchPipelineOptions
 from lia.research.config import ResearchConfig
-from lia.system_prompts.network_agent_system_prompt import network_agent_system_prompt
-from lia.research import ResearchPipelineOptions
-from lia.research import ResearchMaterial
+
 
 class ResearchAgentDependencies(BaseModel):
     research_config: ResearchConfig
     material: str
-   
-async def get_researcher_agent(options:ResearchPipelineOptions, mcp_servers:list|None = None):
-    print(f"Get Researcher Agent: {options}")
-    provider = OpenAIProvider(base_url=options.llm_api_url,api_key=options.llm_api_key)
-    llm_model = OpenAIModel(options.model_name,provider=provider) 
+
+
+async def get_researcher_agent(
+    options: ResearchPipelineOptions, mcp_servers: list | None = None
+):
+    # Avoid printing full options here (it may include secrets like API keys/tokens).
+    provider = OpenAIProvider(base_url=options.llm_api_url, api_key=options.llm_api_key)
+    llm_model = OpenAIModel(options.model_name, provider=provider)
     if mcp_servers is None:
-      mcp_servers = [
-        MCPServerStreamableHTTP(url="http://127.0.0.1:8000/mcp/"), # HS Code semantic search (H6 rollup)
-        MCPServerStreamableHTTP(url="http://127.0.0.1:8001/mcp/"), # Research Content Semantic Search
-        MCPServerStdio('wikipedia-mcp', ["--transport", "stdio", "--log-level", "INFO", "--enable-cache"] + (["--access-token", options.wikimedia_access_token] if options.wikimedia_access_token is not None else [])),
-        MCPServerStdio('uvx', args=["mcp-google-cse"], env={"API_KEY": options.google_api_key, "ENGINE_ID": options.google_custom_search_engine_id,"RESULT_NUM":"50"}),
-        MCPServerStdio('uvx', ["mcp-server-fetch"]),
-      ]   
-  
-    agent = Agent(model=llm_model,output_type=ResearchMaterial,retries=5,deps_type=ResearchAgentDependencies,mcp_servers=mcp_servers)
-    
+        mcp_servers = [
+            MCPServerStreamableHTTP(
+                url="http://127.0.0.1:8000/mcp/"
+            ),  # HS Code semantic search (H6 rollup)
+            MCPServerStreamableHTTP(
+                url="http://127.0.0.1:8001/mcp/"
+            ),  # Research Content Semantic Search
+            MCPServerStdio(
+                "wikipedia-mcp",
+                ["--transport", "stdio", "--log-level", "INFO", "--enable-cache"]
+                + (
+                    ["--access-token", options.wikimedia_access_token]
+                    if options.wikimedia_access_token is not None
+                    else []
+                ),
+            ),
+            MCPServerStdio(
+                "uvx",
+                args=["mcp-google-cse"],
+                env={
+                    "API_KEY": options.google_api_key,
+                    "ENGINE_ID": options.google_custom_search_engine_id,
+                    "RESULT_NUM": "50",
+                },
+            ),
+            MCPServerStdio("uvx", ["mcp-server-fetch"]),
+        ]
+
+    agent = Agent(
+        model=llm_model,
+        output_type=ResearchMaterial,
+        retries=5,
+        deps_type=ResearchAgentDependencies,
+        mcp_servers=mcp_servers,
+    )
+
     @agent.instructions()
     async def get_instructions(ctx: RunContext[ResearchAgentDependencies]) -> str:
         system_prompt = f"""
@@ -54,7 +82,7 @@ For each process involved, do the following:
     4. Find at least two high-quality references (scientific articles, government reports, supplier technical documentation) that describe this process. Include the URLs.
 
 Rules:
-* Precursors and products should only list the common industrial name of the form of the percursor or byproduct required for a process. 
+* Precursors and products should only list the common industrial name of the form of the percursor or byproduct required for a process.
 * Material precursors and products MUST be specifically named. For example,  "various organic compounds", "dye intermediates", "metal", "ore", and "carbon containing fuels" are not specific enough. Use specific names like "aniline" or "benzene" instead.
 * If a specific precursor or byproduct is not known, do NOT include it in the list. Do not use "various", "other", "none", "unknown", or similar terms.
 * Do not include 'scrap' or 'waste' forms of a material as a precursor or byproduct.
@@ -70,7 +98,7 @@ Use the tools you have available to search for additional information as require
 
     @agent.instructions()
     async def get_examples(ctx: RunContext[ResearchAgentDependencies]) -> str:
-        examples="""
+        examples = """
 Then, compile the full material profile as a JSON object matching the following schema:
 {
     "name": "Canonical name of material",
@@ -96,5 +124,5 @@ Ensure all information is well-researched, complete, and technically accurate. P
     Academic or industrial whitepapers
         """
         return examples
-    
+
     return agent

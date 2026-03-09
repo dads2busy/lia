@@ -1,24 +1,24 @@
-import sys
-import json
+import asyncio
 import hashlib
-from pathlib import Path
-from typing import List, Set
-import numpy as np
-import faiss
-from sentence_transformers import SentenceTransformer
-from pydantic import BaseModel
-from fastmcp import FastMCP
-import typer
+import json
+import sys
 import threading
 import time
-from transformers import AutoTokenizer
-import anyio
-import types
-import asyncio
+from pathlib import Path
+from typing import List, Set
 
+import anyio
+import faiss
+import numpy as np
+import typer
+from fastmcp import FastMCP
 
 ## TEMP Patch for MCP not handling client closing connection
 from mcp.shared import session as session_shared
+from pydantic import BaseModel
+from sentence_transformers import SentenceTransformer
+from transformers import AutoTokenizer
+
 
 def patch_session_class():
     orig_method = session_shared.BaseSession._receive_loop
@@ -32,6 +32,7 @@ def patch_session_class():
             print(f"⚠️ Unexpected error in receive loop: {e}")
 
     session_shared.BaseSession._receive_loop = patched_receive_loop
+
 
 # Call this early, after FastMCP is initialized
 patch_session_class()
@@ -49,17 +50,24 @@ SEEN_FILES: Set[str] = set()
 
 app = typer.Typer()
 
+
 class SemanticSearchRequest(BaseModel):
     query: str
     top_k: int = 5
+
 
 class SemanticSearchResult(BaseModel):
     url: str
     content: str
     score: float
 
-def chunk_text(text: str, min_tokens: int = 300, max_tokens: int = 500, overlap_pct: float = 0.15) -> List[str]:
-    tokens = TOKENIZER.encode(text, truncation=False, max_length=4096, return_tensors=None)[:4096]
+
+def chunk_text(
+    text: str, min_tokens: int = 300, max_tokens: int = 500, overlap_pct: float = 0.15
+) -> List[str]:
+    tokens = TOKENIZER.encode(
+        text, truncation=False, max_length=4096, return_tensors=None
+    )[:4096]
     chunks = []
     stride = int(max_tokens * (1 - overlap_pct))
     start = 0
@@ -73,12 +81,21 @@ def chunk_text(text: str, min_tokens: int = 300, max_tokens: int = 500, overlap_
         start += stride
     return chunks
 
+
 def hash_folder_path(folder_path: Path) -> str:
     abs_path = str(folder_path.resolve()).encode("utf-8")
     return hashlib.sha256(abs_path).hexdigest()
 
+
 def load_json_documents(watch_dir: Path, cache_dir: Path):
     global DOC_DATA, DOC_TEXTS, DOC_EMBEDDINGS, DOC_INDEX
+
+    # Reset globals on (re)load to avoid duplication across restarts.
+    DOC_DATA = []
+    DOC_TEXTS = []
+    DOC_EMBEDDINGS = None
+    DOC_INDEX = None
+    SEEN_FILES.clear()
 
     cache_key = hash_folder_path(watch_dir)
     embedding_cache = cache_dir / f"{cache_key}_researchdata_embeddings.npy"
@@ -111,8 +128,15 @@ def load_json_documents(watch_dir: Path, cache_dir: Path):
         DOC_TEXTS[:] = [doc["content"] for doc in DOC_DATA]
         if not DOC_TEXTS:
             print("⚠️ No valid documents found to index.", file=sys.stderr)
-            DOC_EMBEDDINGS = np.zeros((0, MODEL.get_sentence_embedding_dimension()), dtype=np.float32)
+            DOC_EMBEDDINGS = np.zeros(
+                (0, MODEL.get_sentence_embedding_dimension()), dtype=np.float32
+            )
             DOC_INDEX = faiss.IndexFlatL2(MODEL.get_sentence_embedding_dimension())
+            # Persist the empty state so subsequent restarts don't repeatedly rebuild.
+            np.save(embedding_cache, DOC_EMBEDDINGS)
+            faiss.write_index(DOC_INDEX, str(index_cache))
+            with open(data_cache, "w", encoding="utf-8") as f:
+                json.dump(DOC_DATA, f)
             return
 
         DOC_EMBEDDINGS = MODEL.encode(DOC_TEXTS, show_progress_bar=True)
@@ -128,9 +152,10 @@ def load_json_documents(watch_dir: Path, cache_dir: Path):
             json.dump(DOC_DATA, f)
         print("✅ Cache saved", file=sys.stderr)
 
+
 def watch_directory(watch_dir: Path):
     def watch():
-        global DOC_DATA
+        global DOC_DATA, DOC_INDEX, DOC_EMBEDDINGS
         while True:
             for file in watch_dir.glob("*.json"):
                 try:
@@ -144,30 +169,41 @@ def watch_directory(watch_dir: Path):
                             chunk_url = f"{url}#chunk{i}"
                             if chunk_url in SEEN_FILES:
                                 continue
+
                             embedding = MODEL.encode([chunk])[0].astype(np.float32)
+
+                            # If the index is empty/uninitialized for any reason, create it.
+                            if DOC_INDEX is None:
+                                dim = MODEL.get_sentence_embedding_dimension()
+                                DOC_INDEX = faiss.IndexFlatL2(dim)
+                                DOC_EMBEDDINGS = np.zeros((0, dim), dtype=np.float32)
+
                             DOC_INDEX.add(np.array([embedding]))
                             DOC_DATA.append({"url": chunk_url, "content": chunk})
                             SEEN_FILES.add(chunk_url)
-                            print(f"🆕 Added new document chunk: {chunk_url}", file=sys.stderr)
+                            print(
+                                f"🆕 Added new document chunk: {chunk_url}",
+                                file=sys.stderr,
+                            )
                 except Exception as e:
                     print(f"⚠️ Failed to process {file}: {e}", file=sys.stderr)
             time.sleep(5)
+
     threading.Thread(target=watch, daemon=True).start()
+
 
 @app.command()
 def run_server(
     watch_dir: Path = typer.Argument(..., help="Directory with JSON files"),
     cache_dir: Path = typer.Option(CACHE_DIR, help="Directory to store cache files"),
     host: str = typer.Option("127.0.0.1", help="Host to serve on"),
-    port: int = typer.Option(8001, help="Port to serve on")
+    port: int = typer.Option(8001, help="Port to serve on"),
 ):
-    
-    
+
     # Set cache directory
     CACHE_DIR = Path(cache_dir).resolve()
     CACHE_DIR.mkdir(exist_ok=True)
-    
-    
+
     if not watch_dir.exists() or not watch_dir.is_dir():
         print(f"❌ Directory not found: {watch_dir}", file=sys.stderr)
         raise typer.Exit(code=1)
@@ -177,40 +213,60 @@ def run_server(
 
     mcp = FastMCP("Preliminary Research Search Server", version="0.1")
 
-    @mcp.tool(name="semantic_research_search", description="Semantic search over related research material")
-    async def semantic_search(input: SemanticSearchRequest) -> List[SemanticSearchResult]:
+    @mcp.tool(
+        name="semantic_research_search",
+        description="Semantic search over related research material",
+    )
+    async def semantic_search(
+        input: SemanticSearchRequest,
+    ) -> List[SemanticSearchResult]:
         def run_faiss_query():
             print(f"Input.query: '{input.query}'")
             try:
+                if DOC_INDEX is None or DOC_DATA is None:
+                    return []
+
+                # Handle empty indexes safely.
+                if not DOC_DATA:
+                    return []
+
                 query_vector = MODEL.encode([input.query])
-                D, I = DOC_INDEX.search(np.array(query_vector), input.top_k)
-                matches = []
+                top_k = max(1, min(int(input.top_k), len(DOC_DATA)))
+
+                D, I = DOC_INDEX.search(np.array(query_vector), top_k)
+                matches: List[SemanticSearchResult] = []
                 for idx, dist in zip(I[0], D[0]):
+                    # FAISS may return -1 indices in some edge cases; skip them.
+                    if idx is None or idx < 0:
+                        continue
+                    if idx >= len(DOC_DATA):
+                        continue
                     entry = DOC_DATA[idx]
-                    matches.append(SemanticSearchResult(
-                        url=entry["url"],
-                        content=entry["content"],
-                        score=float(1.0 / (1.0 + dist))
-                    ))
-                print(f"Matches: {len(matches)}")
-                print(f"Matches: {matches}")
+                    matches.append(
+                        SemanticSearchResult(
+                            url=entry["url"],
+                            content=entry["content"],
+                            score=float(1.0 / (1.0 + dist)),
+                        )
+                    )
                 return matches
             except Exception as err:
                 print(f"Error running query: {err}", file=sys.stderr)
                 return []
 
         print(f"🔍 Querying: {input.query}", file=sys.stderr)
-        
+
         try:
             return await anyio.to_thread.run_sync(run_faiss_query)
         except Exception as e:
             print(f"Search tool error: {e}")
             return []
-        
+
     try:
         mcp.run(transport="http", host=host, port=port, path="/mcp")
     except Exception as e:
         print(f"⚠️ Unexpected error in receive loop: {e}")
+
 
 if __name__ == "__main__":
     app()
