@@ -4,6 +4,10 @@ from pathlib import Path
 
 DATA_DIR = Path(__file__).resolve().parent.parent / "data" / "UN_Comtrade"
 
+pytestmark = pytest.mark.skipif(
+    not DATA_DIR.exists(), reason="Comtrade data not available"
+)
+
 
 def test_load_partner_areas():
     """partnerAreas.arrow loads and contains US (code 840)."""

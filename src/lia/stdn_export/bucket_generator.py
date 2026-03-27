@@ -98,7 +98,10 @@ async def generate_bucket(
         model=options.model_name,
     )
 
-    save_cached_bucket(cache_dir, material, bucket)
+    if entries:
+        save_cached_bucket(cache_dir, material, bucket)
+    else:
+        print(f"  Warning: No HS codes found for {material} — bucket not cached (will retry next run)")
     print(f"  Bucket for {material}: {len(entries)} HS codes ({sum(1 for e in entries if e.quality == 'clean')} clean, {sum(1 for e in entries if e.quality == 'shared')} shared)")
     return bucket
 
@@ -106,9 +109,10 @@ async def generate_bucket(
 def classify_hs_quality(material: str, mat: ResearchMaterial, h6_desc: str) -> str:
     """Determine if an HS code is 'clean' (specific to this material) or 'shared'.
 
-    Heuristic: check if the H6 description contains semicolons separating
-    multiple distinct material names. If the description only references
-    the target material (or its aliases), it's clean.
+    Heuristic: if the description references distinct material names beyond
+    the target material and its aliases, it's 'shared'. Common HS description
+    patterns like "ores and concentrates" or "articles thereof" are NOT
+    treated as multi-material indicators.
     """
     if not h6_desc:
         return "shared"  # Can't verify, assume shared
@@ -119,18 +123,15 @@ def classify_hs_quality(material: str, mat: ResearchMaterial, h6_desc: str) -> s
     aliases = [a.lower() for a in (mat.aliases or [])]
     all_names = [material_lower] + aliases + [mat.name.lower()]
 
-    # If description is short and clearly about this material, it's clean
-    # Check for common "multi-material" patterns
-    multi_material_indicators = [
-        " and ", " or ", ";", "other than", "n.e.c.", "not elsewhere",
-        "whether or not", "including"
+    # Strong indicators of multi-material codes
+    strong_multi_indicators = [
+        ";", "other than", "n.e.c.", "not elsewhere",
     ]
 
-    # If material name appears and no multi-material indicators, likely clean
     material_mentioned = any(name in desc_lower for name in all_names)
-    has_multi_indicator = any(ind in desc_lower for ind in multi_material_indicators)
+    has_strong_indicator = any(ind in desc_lower for ind in strong_multi_indicators)
 
-    if material_mentioned and not has_multi_indicator:
+    if material_mentioned and not has_strong_indicator:
         return "clean"
 
     return "shared"

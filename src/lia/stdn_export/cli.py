@@ -13,14 +13,9 @@ app = typer.Typer(help="Export STDN trade flow data from Comtrade for the STDN E
 # Repo root for resolving relative defaults
 REPO_ROOT = Path(__file__).resolve().parent.parent.parent.parent
 
-# Load user config for defaults (same pattern as cli.py)
-DEFAULT_LIA_CONFIG = Path.home() / ".lia" / "config.json"
-def _load_user_config() -> dict:
-    if DEFAULT_LIA_CONFIG.exists():
-        with DEFAULT_LIA_CONFIG.open() as f:
-            return json.load(f)
-    return {}
-UserConfig = _load_user_config()
+# Reuse shared config loader from main CLI
+from lia.cli import load_user_config
+UserConfig = load_user_config()
 
 
 def parse_materials(materials_arg: str) -> list[str]:
