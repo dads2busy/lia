@@ -14,12 +14,14 @@ from lia.identify_raw_materials import (
 )
 from lia.research.research_cli import app as research_app
 from lia.search import SearchOptions, llmsearch
+from lia.stdn_export.cli import app as stdn_export_app
 
 app = typer.Typer()
 app.add_typer(
     research_app,
     name="bottomup",
 )
+app.add_typer(stdn_export_app, name="stdn-export")
 
 DEFAULT_LIA_CONFIG = Path.home() / ".lia" / "config.json"
 
