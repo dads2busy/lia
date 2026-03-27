@@ -5,6 +5,7 @@ from typing import Optional
 
 from lia.research import ResearchMaterial, ResearchPipelineOptions
 from lia.research.agents.material_classificaton_agent import (
+    MaterialClassificatonAgentDeps,
     get_material_classification_agent,
 )
 from lia.stdn_export import HSCodeEntry, MaterialBucket
@@ -64,12 +65,14 @@ async def generate_bucket(
 
     # No async context manager needed — MCPServerStreamableHTTP connects per call,
     # and the MCP server subprocess is managed by mcp_server_context externally.
+    deps = MaterialClassificatonAgentDeps(materials=None)
     result = await agent.run(
         f"Identify all HS-6 codes for the material: {material}. "
         f"Include raw/mined forms, refined forms, intermediates, and compounds. "
         f"For each HS code, also determine if the code is specific to {material} "
         f"(quality: 'clean') or if it covers multiple distinct materials "
         f"(quality: 'shared'). Use the HS code search tool to find candidates.",
+        deps=deps,
     )
 
     # Parse agent result into HSCodeEntry list
