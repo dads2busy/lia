@@ -41,13 +41,14 @@ def mcp_server_context(
 
     script = find_mcp_server_script()
     python = python or sys.executable
-    cmd = [python, str(script), "--file", hs_rollup_file, "--port", str(port)]
+    # Server port is hardcoded in the script (mcp.run(..., port=8000))
+    cmd = [python, str(script), "--file", hs_rollup_file]
 
     print(f"Starting MCP server: {' '.join(cmd)}")
     proc = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
 
-    # Wait for server to be ready (up to 30 seconds)
-    for i in range(60):
+    # Wait for server to be ready (up to 90 seconds — first run builds FAISS index)
+    for i in range(180):
         if is_port_open(port):
             print(f"MCP server ready on port {port}")
             break
@@ -57,7 +58,7 @@ def mcp_server_context(
         time.sleep(0.5)
     else:
         proc.terminate()
-        raise TimeoutError(f"MCP server did not start within 30 seconds on port {port}")
+        raise TimeoutError(f"MCP server did not start within 90 seconds on port {port}")
 
     try:
         yield
