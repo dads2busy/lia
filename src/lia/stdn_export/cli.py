@@ -132,17 +132,27 @@ async def _run_export(
         from contextlib import nullcontext
         ctx = nullcontext()
 
+    from pydantic_ai.mcp import MCPServerStreamableHTTP
+
+    hs_mcp = MCPServerStreamableHTTP(url="http://127.0.0.1:8000/mcp")
+
     with ctx:
-        for material in material_list:
-            print(f"\n[{material}]")
-            bucket = await generate_bucket(
-                material=material,
-                options=options,
-                h6_rollup=h6_rollup,
-                cache_dir=cache_dir,
-                use_cache=use_cache,
-            )
-            buckets[material] = bucket
+        async with hs_mcp:
+            for i, material in enumerate(material_list, 1):
+                print(f"\n[{i}/{len(material_list)}] {material}")
+                try:
+                    bucket = await generate_bucket(
+                        material=material,
+                        options=options,
+                        h6_rollup=h6_rollup,
+                        cache_dir=cache_dir,
+                        use_cache=use_cache,
+                        mcp_server=hs_mcp,
+                    )
+                    buckets[material] = bucket
+                except Exception as e:
+                    print(f"  ERROR: {material} failed: {e}")
+                    buckets[material] = MaterialBucket(hs_codes=[], model=options.model_name)
 
     # Collect all HS codes across all buckets
     all_hs_codes = set()

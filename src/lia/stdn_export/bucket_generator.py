@@ -48,6 +48,7 @@ async def generate_bucket(
     h6_rollup: dict[str, str],
     cache_dir: Path,
     use_cache: bool = True,
+    mcp_server: MCPServerStreamableHTTP | None = None,
 ) -> MaterialBucket:
     """Generate an HS code bucket for a material.
 
@@ -55,6 +56,9 @@ async def generate_bucket(
     2. Run Material Classification Agent to discover all HS-6 codes
     3. Classify each code as clean/shared using H6_rollup descriptions
     4. Cache and return
+
+    If mcp_server is provided, it must already be entered as an async context
+    manager by the caller (session stays open across multiple calls).
     """
     if use_cache:
         cached = load_cached_bucket(cache_dir, material)
@@ -63,20 +67,19 @@ async def generate_bucket(
             return cached
 
     print(f"  Generating bucket for {material} via Material Classification Agent...")
-    # Only use the HS code FAISS server (port 8000); skip Research Content server (8001)
-    hs_mcp = MCPServerStreamableHTTP(url="http://127.0.0.1:8000/mcp")
-    agent = await get_material_classification_agent(options, mcp_servers=[hs_mcp])
+    if mcp_server is None:
+        mcp_server = MCPServerStreamableHTTP(url="http://127.0.0.1:8000/mcp")
+    agent = await get_material_classification_agent(options, mcp_servers=[mcp_server])
 
     deps = MaterialClassificatonAgentDeps(materials=None)
-    async with hs_mcp:
-        result = await agent.run(
-            f"Identify all HS-6 codes for the material: {material}. "
-            f"Include raw/mined forms, refined forms, intermediates, and compounds. "
-            f"For each HS code, also determine if the code is specific to {material} "
-            f"(quality: 'clean') or if it covers multiple distinct materials "
-            f"(quality: 'shared'). Use the HS code search tool to find candidates.",
-            deps=deps,
-        )
+    result = await agent.run(
+        f"Identify all HS-6 codes for the material: {material}. "
+        f"Include raw/mined forms, refined forms, intermediates, and compounds. "
+        f"For each HS code, also determine if the code is specific to {material} "
+        f"(quality: 'clean') or if it covers multiple distinct materials "
+        f"(quality: 'shared'). Use the HS code search tool to find candidates.",
+        deps=deps,
+    )
 
     # Parse agent result into HSCodeEntry list
     # The agent returns list[ResearchMaterial], each with one hs_code
