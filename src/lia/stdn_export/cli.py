@@ -45,8 +45,8 @@ def export(
     hs_rollup: Annotated[str, typer.Option("--hs-rollup", help="Path to H6_rollup.md")] = UserConfig.get("hs_rollup_file", str(REPO_ROOT / "H6_rollup.md")),
     no_cache: Annotated[bool, typer.Option("--no-cache", help="Force regeneration of bucket mappings")] = False,
     no_mcp_auto: Annotated[bool, typer.Option("--no-mcp-auto", help="Don't auto-launch MCP servers")] = False,
-    model: Annotated[str, typer.Option("--model", help="LLM model name")] = "llama3.3",
-    llm_api_url: Annotated[Optional[str], typer.Option("--llm-api-url", help="LLM API URL")] = "http://localhost:11434/v1",
+    model: Annotated[str, typer.Option("--model", help="LLM model name")] = "openai:gpt-5.3",
+    llm_api_url: Annotated[Optional[str], typer.Option("--llm-api-url", help="LLM API URL")] = None,
     llm_api_key: Annotated[Optional[str], typer.Option("--llm-api-key", help="LLM API key")] = None,
 ):
     """Export STDN trade flow data from Comtrade for the STDN Explorer."""
@@ -79,7 +79,7 @@ async def _run_export(
     use_cache: bool,
     auto_mcp: bool,
     model: str,
-    llm_api_url: str,
+    llm_api_url: Optional[str],
     llm_api_key: str,
 ):
     from lia.research import ResearchPipelineOptions
