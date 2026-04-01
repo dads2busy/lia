@@ -15,7 +15,7 @@ class MaterialBucket(BaseModel):
     """All HS codes related to a single material."""
     hs_codes: List[HSCodeEntry]
     generated_at: str = Field(default_factory=lambda: datetime.now().isoformat())
-    model: str = "openai:gpt-5.3"
+    model: str = "openai:gpt-5.4"
 
 
 class TradeFlowRow(BaseModel):

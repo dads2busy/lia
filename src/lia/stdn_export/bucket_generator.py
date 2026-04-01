@@ -64,7 +64,7 @@ async def generate_bucket(
 
     print(f"  Generating bucket for {material} via Material Classification Agent...")
     # Only use the HS code FAISS server (port 8000); skip Research Content server (8001)
-    hs_mcp = MCPServerStreamableHTTP(url="http://127.0.0.1:8000/mcp/")
+    hs_mcp = MCPServerStreamableHTTP(url="http://127.0.0.1:8000/mcp")
     agent = await get_material_classification_agent(options, mcp_servers=[hs_mcp])
 
     deps = MaterialClassificatonAgentDeps(materials=None)

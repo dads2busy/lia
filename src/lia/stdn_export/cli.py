@@ -55,7 +55,7 @@ def export(
     hs_rollup: Annotated[str, typer.Option("--hs-rollup", help="Path to H6_rollup.md")] = UserConfig.get("hs_rollup_file", str(REPO_ROOT / "H6_rollup.md")),
     no_cache: Annotated[bool, typer.Option("--no-cache", help="Force regeneration of bucket mappings")] = False,
     no_mcp_auto: Annotated[bool, typer.Option("--no-mcp-auto", help="Don't auto-launch MCP servers")] = False,
-    model: Annotated[str, typer.Option("--model", help="LLM model name")] = "openai:gpt-5.3",
+    model: Annotated[str, typer.Option("--model", help="LLM model name")] = "openai:gpt-5.4",
     llm_api_url: Annotated[Optional[str], typer.Option("--llm-api-url", help="LLM API URL")] = None,
     llm_api_key: Annotated[Optional[str], typer.Option("--llm-api-key", help="LLM API key")] = None,
 ):
@@ -107,7 +107,7 @@ async def _run_export(
     print(f"Years: {years[0]}-{years[-1]}")
     print(f"Output: {output_path}")
 
-    # Strip provider prefix (e.g. "openai:gpt-5.3" -> "gpt-5.3") since
+    # Strip provider prefix (e.g. "openai:gpt-5.4" -> "gpt-5.3") since
     # lia's agents use OpenAIModel directly rather than pydantic-ai's routing
     model_name = model.split(":", 1)[-1] if ":" in model else model
 
