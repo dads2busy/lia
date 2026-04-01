@@ -17,9 +17,14 @@ app = typer.Typer(help="Export STDN trade flow data from Comtrade for the STDN E
 # Repo root for resolving relative defaults
 REPO_ROOT = Path(__file__).resolve().parent.parent.parent.parent
 
-# Reuse shared config loader from main CLI
-from lia.cli import load_user_config
-UserConfig = load_user_config()
+# Load user config for defaults (same pattern as lia.cli, inlined to avoid circular import)
+_LIA_CONFIG_PATH = Path.home() / ".lia" / "config.json"
+def _load_user_config() -> dict:
+    if _LIA_CONFIG_PATH.exists():
+        with _LIA_CONFIG_PATH.open() as f:
+            return json.load(f)
+    return {}
+UserConfig = _load_user_config()
 
 
 def parse_materials(materials_arg: str) -> list[str]:
@@ -101,10 +106,14 @@ async def _run_export(
     print(f"Years: {years[0]}-{years[-1]}")
     print(f"Output: {output_path}")
 
+    # Strip provider prefix (e.g. "openai:gpt-5.3" -> "gpt-5.3") since
+    # lia's agents use OpenAIModel directly rather than pydantic-ai's routing
+    model_name = model.split(":", 1)[-1] if ":" in model else model
+
     options = ResearchPipelineOptions(
-        model_name=model,
+        model_name=model_name,
         llm_api_url=llm_api_url,
-        llm_api_key=llm_api_key,
+        llm_api_key=llm_api_key or "",
     )
 
     # Load H6 rollup for quality classification
