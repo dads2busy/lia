@@ -104,7 +104,7 @@ async def semantic_hs_query(input: HSQueryInput) -> HSQueryOutput:
 if __name__ == "__main__":
 
     parser = argparse.ArgumentParser()
-    parser.add_argument("--file", type=str, help="Path to HSCode file", default="/sfs/gpfs/tardis/project/bi_dpi/data/UN_Comtrade/H6_rollup.md")
+    parser.add_argument("--file", type=str, help="Path to HSCode file", default=str(Path(__file__).resolve().parent.parent.parent.parent / "H6_rollup.md"))
     parser.add_argument("--cache-dir", type=str, help="Path to cache directory", default=".cache")
     args = parser.parse_args()
 

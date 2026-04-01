@@ -41,7 +41,7 @@ ENV_RESEARCH_FOLDER = "LIA_RESEARCH_FOLDER"
 DEFAULT_LIA_CONFIG = Path.home() / ".lia" / "config.json"
 
 ENV_HS_ROLLUP_FILE = "LIA_HS_ROLLUP_FILE"
-DEFAULT_HS_ROLLUP_FILE = "/sfs/gpfs/tardis/project/bi_dpi/data/UN_Comtrade/H6_rollup.md"
+DEFAULT_HS_ROLLUP_FILE = str(Path(__file__).resolve().parent.parent.parent.parent / "H6_rollup.md")
 
 
 def resolve_output(default: Optional[Path] = None) -> Path:
