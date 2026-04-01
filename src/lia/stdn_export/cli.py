@@ -1,6 +1,7 @@
 # src/lia/stdn_export/cli.py
 import asyncio
 import json
+import os
 from pathlib import Path
 from typing import Annotated, Optional
 
@@ -113,7 +114,7 @@ async def _run_export(
     options = ResearchPipelineOptions(
         model_name=model_name,
         llm_api_url=llm_api_url,
-        llm_api_key=llm_api_key or "",
+        llm_api_key=llm_api_key or os.environ.get("OPENAI_API_KEY", ""),
     )
 
     # Load H6 rollup for quality classification
