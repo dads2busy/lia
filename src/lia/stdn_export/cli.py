@@ -134,7 +134,7 @@ async def _run_export(
 
     from pydantic_ai.mcp import MCPServerStreamableHTTP
 
-    hs_mcp = MCPServerStreamableHTTP(url="http://127.0.0.1:8000/mcp")
+    hs_mcp = MCPServerStreamableHTTP(url="http://127.0.0.1:8000/mcp", timeout=30)
 
     with ctx:
         async with hs_mcp:
@@ -150,7 +150,8 @@ async def _run_export(
                         mcp_server=hs_mcp,
                     )
                     buckets[material] = bucket
-                except Exception as e:
+                except BaseException as e:
+                    # BaseException catches ExceptionGroup from async TaskGroup
                     print(f"  ERROR: {material} failed: {e}")
                     buckets[material] = MaterialBucket(hs_codes=[], model=options.model_name)
 
