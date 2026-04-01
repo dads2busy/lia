@@ -15,3 +15,5 @@ slurm*.out
 *.bak
 *.egg-info/
 lia.code-workspace
+data/UN_Comtrade/*.arrow
+.env

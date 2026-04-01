@@ -4,6 +4,10 @@ import json
 from pathlib import Path
 from typing import Annotated, Optional
 
+from dotenv import load_dotenv
+
+load_dotenv()
+
 import typer
 
 from lia.stdn_export import MaterialBucket
