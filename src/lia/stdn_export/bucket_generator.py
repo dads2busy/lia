@@ -1,3 +1,4 @@
+import asyncio
 import json
 from datetime import datetime
 from pathlib import Path
@@ -72,13 +73,16 @@ async def generate_bucket(
     agent = await get_material_classification_agent(options, mcp_servers=[mcp_server])
 
     deps = MaterialClassificatonAgentDeps(materials=None)
-    result = await agent.run(
-        f"Identify all HS-6 codes for the material: {material}. "
-        f"Include raw/mined forms, refined forms, intermediates, and compounds. "
-        f"For each HS code, also determine if the code is specific to {material} "
-        f"(quality: 'clean') or if it covers multiple distinct materials "
-        f"(quality: 'shared'). Use the HS code search tool to find candidates.",
-        deps=deps,
+    result = await asyncio.wait_for(
+        agent.run(
+            f"Identify all HS-6 codes for the material: {material}. "
+            f"Include raw/mined forms, refined forms, intermediates, and compounds. "
+            f"For each HS code, also determine if the code is specific to {material} "
+            f"(quality: 'clean') or if it covers multiple distinct materials "
+            f"(quality: 'shared'). Use the HS code search tool to find candidates.",
+            deps=deps,
+        ),
+        timeout=120,
     )
 
     # Parse agent result into HSCodeEntry list

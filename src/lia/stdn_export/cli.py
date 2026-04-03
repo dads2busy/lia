@@ -58,6 +58,7 @@ def export(
     model: Annotated[str, typer.Option("--model", help="LLM model name")] = "openai:gpt-5.4",
     llm_api_url: Annotated[Optional[str], typer.Option("--llm-api-url", help="LLM API URL")] = None,
     llm_api_key: Annotated[Optional[str], typer.Option("--llm-api-key", help="LLM API key")] = None,
+    buckets_only: Annotated[bool, typer.Option("--buckets-only", help="Only generate HS code buckets, skip Comtrade query")] = False,
 ):
     """Export STDN trade flow data from Comtrade for the STDN Explorer."""
     if perspective.upper() != "US":
@@ -76,6 +77,7 @@ def export(
         model=model,
         llm_api_url=llm_api_url,
         llm_api_key=llm_api_key or "",
+        buckets_only=buckets_only,
     ))
 
 
@@ -91,6 +93,7 @@ async def _run_export(
     model: str,
     llm_api_url: Optional[str],
     llm_api_key: str,
+    buckets_only: bool = False,
 ):
     from lia.research import ResearchPipelineOptions
     from lia.stdn_export.bucket_generator import generate_bucket, load_h6_rollup
@@ -135,13 +138,11 @@ async def _run_export(
     from pydantic_ai.mcp import MCPServerStreamableHTTP
 
     with ctx:
-        for i, material in enumerate(material_list, 1):
-            print(f"\n[{i}/{len(material_list)}] {material}")
-            try:
-                # Fresh MCP session per material -- a failed session poisons
-                # the connection, so we can't reuse across materials.
-                hs_mcp = MCPServerStreamableHTTP(url="http://127.0.0.1:8000/mcp", timeout=30)
-                async with hs_mcp:
+        hs_mcp = MCPServerStreamableHTTP(url="http://127.0.0.1:8000/mcp", timeout=180)
+        async with hs_mcp:
+            for i, material in enumerate(material_list, 1):
+                print(f"\n[{i}/{len(material_list)}] {material}")
+                try:
                     bucket = await generate_bucket(
                         material=material,
                         options=options,
@@ -150,10 +151,10 @@ async def _run_export(
                         use_cache=use_cache,
                         mcp_server=hs_mcp,
                     )
-                buckets[material] = bucket
-            except BaseException as e:
-                print(f"  ERROR: {material} failed: {e}")
-                buckets[material] = MaterialBucket(hs_codes=[], model=options.model_name)
+                    buckets[material] = bucket
+                except BaseException as e:
+                    print(f"  ERROR: {material} failed: {e}")
+                    buckets[material] = MaterialBucket(hs_codes=[], model=options.model_name)
 
     # Collect all HS codes across all buckets
     all_hs_codes = set()
@@ -161,6 +162,15 @@ async def _run_export(
         for entry in bucket.hs_codes:
             all_hs_codes.add(entry.code)
     print(f"\nTotal unique HS codes across all buckets: {len(all_hs_codes)}")
+
+    if buckets_only:
+        # Write bucket mapping and exit
+        bucket_json_path = output_path.with_suffix(".buckets.json")
+        bucket_dict = {name: bucket.model_dump() for name, bucket in buckets.items()}
+        bucket_json_path.write_text(json.dumps(bucket_dict, indent=2))
+        print(f"Bucket mapping written to {bucket_json_path}")
+        print(f"\nDone! Generated buckets for {len(buckets)} materials ({len(all_hs_codes)} unique HS codes).")
+        return
 
     # Stage 3-5: Query Comtrade
     print("\nQuerying Comtrade data...")

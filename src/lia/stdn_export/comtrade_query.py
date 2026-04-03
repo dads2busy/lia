@@ -90,44 +90,48 @@ def aggregate_trade_data(
     For each material bucket, sum USD values across all HS codes in the bucket,
     grouped by exporter country and year. Compute import share and rank.
     """
-    # Build reverse map: hs_code -> list of material names
+    # Build reverse map: hs_code -> list of (material_name, quality)
     # Note: shared HS codes may map to multiple materials. Trade value is
     # attributed to ALL materials that claim the code (duplicated, not split),
     # since we cannot disaggregate shared codes.
-    hs_to_materials: dict[str, list[str]] = {}
+    hs_to_materials: dict[str, list[tuple[str, str]]] = {}
     for material, bucket in buckets.items():
         for entry in bucket.hs_codes:
-            hs_to_materials.setdefault(entry.code, []).append(material)
+            hs_to_materials.setdefault(entry.code, []).append(
+                (material, entry.quality)
+            )
 
-    # Group: (material, partnerCode, year) -> total_value
+    # Group: (material, hs_code, partnerCode, year) -> total_value
+    # One row per HS code (multiplex layer) per the paper's definition,
+    # so g(S) = max_i g_i(S) can be computed downstream.
     groups: dict[tuple, float] = {}
+    hs_quality: dict[tuple[str, str], str] = {}  # (material, hs_code) -> quality
     for row in raw_rows:
-        materials = hs_to_materials.get(row["cmdCode"], [])
-        for material in materials:
-            key = (material, row["partnerCode"], row["refYear"])
+        mat_entries = hs_to_materials.get(row["cmdCode"], [])
+        for material, quality in mat_entries:
+            key = (material, row["cmdCode"], row["partnerCode"], row["refYear"])
             groups[key] = groups.get(key, 0.0) + (row["value"] or 0.0)
+            hs_quality[(material, row["cmdCode"])] = quality
 
-    # Compute totals per (material, year) for share calculation
-    material_year_totals: dict[tuple, float] = {}
-    for (material, _, year), value in groups.items():
-        k = (material, year)
-        material_year_totals[k] = material_year_totals.get(k, 0.0) + value
+    # Compute totals per (material, hs_code, year) for share calculation
+    hs_year_totals: dict[tuple, float] = {}
+    for (material, hs_code, _, year), value in groups.items():
+        k = (material, hs_code, year)
+        hs_year_totals[k] = hs_year_totals.get(k, 0.0) + value
 
-    # Build output rows
+    # Build output rows — one per (material, hs_code, exporter, year)
     output = []
-    for (material, partner_code, year), value in groups.items():
-        total = material_year_totals.get((material, year), 1.0)
+    for (material, hs_code, partner_code, year), value in groups.items():
+        total = hs_year_totals.get((material, hs_code, year), 1.0)
         share = (value / total * 100) if total > 0 else 0.0
 
         partner = partner_map.get(partner_code, {"name": f"Unknown ({partner_code})", "iso3": ""})
-        bucket = buckets[material]
-        hs_bucket_str = "|".join(e.code for e in bucket.hs_codes)
-        worst_quality = "shared" if any(e.quality == "shared" for e in bucket.hs_codes) else "clean"
+        quality = hs_quality.get((material, hs_code), "shared")
 
         output.append(TradeFlowRow(
             material=material,
-            hs_bucket=hs_bucket_str,
-            hs_bucket_quality=worst_quality,
+            hs_bucket=hs_code,
+            hs_bucket_quality=quality,
             year=year,
             exporter=partner["name"],
             exporter_iso3=partner["iso3"],
@@ -136,10 +140,10 @@ def aggregate_trade_data(
             exporter_rank=0,  # Filled in next step
         ))
 
-    # Compute ranks within each (material, year) group
-    output.sort(key=lambda r: (r.material, r.year, -r.import_share_pct))
+    # Compute ranks within each (material, hs_code, year) group
+    output.sort(key=lambda r: (r.material, r.hs_bucket, r.year, -r.import_share_pct))
     ranked = []
-    for _, group in groupby(output, key=lambda r: (r.material, r.year)):
+    for _, group in groupby(output, key=lambda r: (r.material, r.hs_bucket, r.year)):
         for rank, row in enumerate(group, 1):
             row.exporter_rank = rank
             ranked.append(row)
