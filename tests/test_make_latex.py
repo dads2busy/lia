@@ -125,4 +125,40 @@ def test_new_tables_are_wrapped_in_macros(tmp_path: Path):
     assert r"\newcommand{\CriticalityTable}{" in t and r"\label{table:criticality}" in t
     assert r"\textbf{Elemental boron [280450]} & \textbf{73} \\" in t and r"Raw water \& ice [220190] & 10 \\" in t
     assert r"\newcommand{\DisruptionTable}{" in t and r"\label{table:disruption}" in t
-    assert "Disodium tetraborate [284019] & Türkiye & 72\\% & 8 \\\\" in t and "280450" not in t.split("DisruptionTable")[1]
+    assert "Disodium tetraborate [284019] & Türkiye & 72\\% &  & 8 \\\\"  # reporters column empty in this fixture in t and "280450" not in t.split("DisruptionTable")[1]
+
+def test_followup_macros_coverage_inclunreg_halfweight_sourceless(tmp_path: Path):
+    from scripts.eval.make_latex import build_tables
+    _write_new_inputs(tmp_path)
+    cs = tmp_path / "criticality_summary.csv"; lines = cs.read_text().splitlines()
+    cs.write_text(lines[0] + ",n_sourceless_untyped,n_sourceless_unregistered,n_sourceless_empty\n" + lines[1] + ",20,9,2\n")
+    rs = tmp_path / "rank_stability.csv"; lines = rs.read_text().splitlines()
+    rs.write_text(lines[0] + ",half_weight_depth\n" + lines[1] + ",14\n")
+    ds = tmp_path / "disruption_summary.csv"; lines = ds.read_text().splitlines()
+    ds.write_text(lines[0] + ",n_reporters_total\n" + lines[1] + ",151\n")
+    db = tmp_path / "disruption_boron.csv"; lines = db.read_text().splitlines()
+    db.write_text("\n".join([lines[0] + ",n_reporters"] + [l + ",37" for l in lines[1:]]) + "\n")
+    (tmp_path / "disruption_summary_inclunreg.csv").write_text(
+        ds.read_text().replace("boron,74,0,2,72,4,0.0556,1,3,", "boron,74,0,2,72,3,0.0417,2,1,"))
+    (tmp_path / "disruption_boron_inclunreg.csv").write_text(
+        "hs_code,name,status,total_exports,top_exporter_code,top_exporter_iso3,top_exporter_name,top_share,dominated,"
+        "n_reporters,n_dependents,dependents,dependents_frac,reach_loss\n"
+        "284019,Disodium tetraborate,ok,1,792,TUR,Türkiye,0.70,1,37,9,a,0.1,9\n"
+        "284520,Refined boron,ok,1,392,JPN,Japan,0.69,1,12,3,b,0.03,1\n"
+        "280511,Sodium metal,ok,1,251,FRA,France,0.65,1,20,0,,0,1\n")
+    out = build_numbers(tmp_path)
+    for m in [r"\newcommand{\DisruptReporters}{151}", r"\newcommand{\RboHalfWeightDepth}{14}",
+              r"\newcommand{\CritSourcelessUntypedBoron}{20}", r"\newcommand{\CritSourcelessUnregisteredBoron}{9}",
+              r"\newcommand{\CritSourcelessEmptyBoron}{2}",
+              r"\newcommand{\DisruptCascadingInclUnregBoron}{2}", r"\newcommand{\DisruptDominatedInclUnregBoron}{3}",
+              r"\newcommand{\DisruptCascadeFirstCodeInclUnregBoron}{284019}",
+              r"\newcommand{\DisruptCascadeFirstNameInclUnregBoron}{Disodium tetraborate}",
+              r"\newcommand{\DisruptCascadeFirstDependentsInclUnregBoron}{9}",
+              r"\newcommand{\DisruptCascadeSecondCodeInclUnregBoron}{284520}",
+              r"\newcommand{\DisruptCascadeListInclUnregBoron}{Disodium tetraborate [284019] (9), Refined boron [284520] (3)}",
+              r"\newcommand{\DisruptCascadeListBoron}{Disodium tetraborate [284019] (8)}"]:
+        assert m in out, m
+    names = [l.split("}{")[0][len("\\newcommand{\\"):] for l in out.splitlines() if l.startswith("\\newcommand")]
+    assert all(n.isalpha() for n in names) and len(names) == len(set(names))
+    t = build_tables(tmp_path)
+    assert "Share & Reporters & Dependents" in t and "& 72\\% & 37 & 8 \\\\" in t

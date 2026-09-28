@@ -13,7 +13,8 @@ malformed codes ("untyped") and well-formed codes that are not registered materi
 turns process-only 6-digit codes into vertices instead (sensitivity check). Processes
 left with no target are dropped (they cannot make anything reachable); processes left
 with no source (all inputs untyped/unregistered) fire unconditionally -- the empty source set
-vacuously satisfies the Reachable-set definition. --drop-sourceless drops them instead
+vacuously satisfies the Reachable-set definition. They are classified in the audit as
+all-untyped inputs / at least one well-formed but unregistered code / no inputs at all. --drop-sourceless drops them instead
 (sensitivity variant; their products then become precursors if nothing else makes them).
 
 m_start = {m_base} U Pre; c(m) = |R(m_start, H)| - |R(m_start \\ m, H \\ m)|. Deletion
@@ -50,7 +51,8 @@ def build_hypergraph(state: dict, include_unregistered: bool = False,
                 if _code(e): verts.add(_code(e))
     audit = {"n_vertices": len(verts), "n_invalid_material_keys": len(mats) - sum(1 for k in mats if SIX_DIGIT.match(str(k))),
              "n_edges": 0, "n_processes": len(procs), "n_processes_no_target": 0, "n_processes_no_source": 0,
-             "n_entries_untyped": 0, "n_entries_unregistered": 0}
+             "n_entries_untyped": 0, "n_entries_unregistered": 0,
+             "n_sourceless_untyped": 0, "n_sourceless_unregistered": 0, "n_sourceless_empty": 0}
     edges: list[Edge] = []
     for p in procs.values():
         sides = []
@@ -68,6 +70,9 @@ def build_hypergraph(state: dict, include_unregistered: bool = False,
             continue
         if not src:
             audit["n_processes_no_source"] += 1
+            raw = list(p.get("precursors", []) or [])
+            kind = ("empty" if not raw else "unregistered" if any(_code(e) for e in raw) else "untyped")
+            audit[f"n_sourceless_{kind}"] += 1
             if drop_sourceless: continue
         edges.append((src, tgt))
     audit["n_edges"] = len(edges)

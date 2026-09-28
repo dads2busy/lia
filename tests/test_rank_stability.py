@@ -54,3 +54,11 @@ def test_criticality_list_fails_loudly_when_base_missing():
     assert criticality_list(state, "300000")[0] == {"100000": 1}
     with pytest.raises(ValueError, match="280450"):
         criticality_list(state, "280450")
+
+def test_rbo_weight_and_half_weight_depth():
+    from scripts.eval.rank_stability import rbo_weight, half_weight_depth
+    # Webber et al. (2010), Sec. 4.2: at p = 0.9 the top 10 ranks carry ~86% of the weight
+    assert rbo_weight(10, 0.9) == pytest.approx(0.8556, abs=1e-3)
+    assert rbo_weight(1, 0.9) == pytest.approx(0.1 / 0.9 * __import__("math").log(10))   # 1 - p^0 = 0
+    d = half_weight_depth(0.98)
+    assert rbo_weight(d, 0.98) >= 0.5 > rbo_weight(d - 1, 0.98)

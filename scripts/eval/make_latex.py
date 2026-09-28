@@ -173,6 +173,10 @@ def _section6_numbers(d: Path) -> list[str]:
         L += [macro("CritBaseCode", l, r["base_code"]), macro("CritBaseName", l, tex(r["base_name"])),
               macro("CritReach", l, r["reach"]), macro("CritPre", l, r["n_pre"]), macro("CritVertices", l, r["n_vertices"]),
               macro("CritEdges", l, r["n_edges"]), macro("CritSourcelessEdges", l, r["n_processes_no_source"])]
+        if "n_sourceless_untyped" in r:  # breakdown of \CritSourcelessEdges
+            L += [macro("CritSourcelessUntyped", l, r["n_sourceless_untyped"]),
+                  macro("CritSourcelessUnregistered", l, r["n_sourceless_unregistered"]),
+                  macro("CritSourcelessEmpty", l, r["n_sourceless_empty"])]
         for i, pos in enumerate(("Top", "Second", "Third"), 1):
             L += [macro(f"Crit{pos}Code", l, r[f"top{i}_code"]), macro(f"Crit{pos}Name", l, tex(r[f"top{i}_name"])),
                   macro(f"Crit{pos}", l, r[f"top{i}_criticality"])]
@@ -193,6 +197,7 @@ def _section6_numbers(d: Path) -> list[str]:
               macro("RboMin", "", f3(r["borda_rbo_min"])), macro("RboMax", "", f3(r["borda_rbo_max"])),
               macro("RboRuns", "", r["n_runs"]), macro("RboPersistence", "", r["p"]), macro("RboBase", "", r["base"]),
               macro("RboTopK", "", r["k"]), macro("RboTieSamples", "", r["samples"]),
+              *([macro("RboHalfWeightDepth", "", r["half_weight_depth"])] if r.get("half_weight_depth") else []),
               macro("RboTopTenOverlap", "", f"{float(r['borda_topk_overlap_mean']):.1f}"),
               macro("RboTopTenOverlapSd", "", f"{float(r['borda_topk_overlap_sd']):.1f}"),
               macro("RboTopTenJaccard", "", pct(r["borda_topk_jaccard_mean"])),
@@ -206,6 +211,8 @@ def _section6_numbers(d: Path) -> list[str]:
     ds = _read(d / "disruption_summary.csv")
     if ds:
         L.append(macro("DisruptThreshold", "", pct(ds[0]["threshold"])))
+        if ds[0].get("n_reporters_total"):
+            L.append(macro("DisruptReporters", "", ds[0]["n_reporters_total"]))
     for r in ds:
         l = r["label"]
         L += [macro("DisruptCodes", l, r["n_codes"]), macro("DisruptInvalid", l, r["n_invalid"]),
@@ -217,6 +224,31 @@ def _section6_numbers(d: Path) -> list[str]:
                   macro("DisruptMaxSupplier", l, tex(r["max_supplier_name"])), macro("DisruptMaxSupplierIso", l, r["max_supplier_iso3"]),
                   macro("DisruptMaxShare", l, pct(r["max_share"])), macro("DisruptMaxDependents", l, r["max_dependents"]),
                   macro("DisruptMaxDependentsFrac", l, pct(r["max_dependents_frac"]))]
+        L += _cascade_macros(d, l, "")
+    for r in _read(d / "disruption_summary_inclunreg.csv"):
+        # sensitivity: unregistered 6-digit codes kept as vertices (as the original lia code did)
+        l = r["label"]
+        L += [macro("DisruptDominatedInclUnreg", l, r["n_dominated"]),
+              macro("DisruptCascadingInclUnreg", l, r["n_dominated_cascading"])]
+        L += _cascade_macros(d, l, "InclUnreg", "_inclunreg")
+    return L
+
+_ORD = ("First", "Second", "Third", "Fourth", "Fifth", "Sixth", "Seventh", "Eighth", "Ninth", "Tenth")
+
+def _cascade_rows(d: Path, label: str, suffix: str = "") -> list[dict]:
+    """Dominated codes with >= 1 dependent, most dependents first (ties by code)."""
+    rows = [r for r in _read(d / f"disruption_{label}{suffix}.csv") if r["dominated"] == "1" and int(r["n_dependents"] or 0) > 0]
+    return sorted(rows, key=lambda r: (-int(r["n_dependents"]), r["hs_code"]))
+
+def _cascade_macros(d: Path, label: str, variant: str, suffix: str = "") -> list[str]:
+    rows = _cascade_rows(d, label, suffix)
+    if not rows: return []
+    L = [macro(f"DisruptCascadeList{variant}", label,
+               ", ".join(f"{tex(r['name'])} [{r['hs_code']}] ({r['n_dependents']})" for r in rows))]
+    for o, r in zip(_ORD, rows):
+        L += [macro(f"DisruptCascade{o}Code{variant}", label, r["hs_code"]),
+              macro(f"DisruptCascade{o}Name{variant}", label, tex(r["name"])),
+              macro(f"DisruptCascade{o}Dependents{variant}", label, r["n_dependents"])]
     return L
 
 def _section6_tables(d: Path) -> list[str]:
@@ -241,10 +273,11 @@ def _section6_tables(d: Path) -> list[str]:
         rows += [(s["label"], r) for r in sorted(dom, key=lambda r: (-int(r["n_dependents"] or 0), r["hs_code"]))]
     if rows:
         T += [r"\newcommand{\DisruptionTable}{\begin{table}[t]\centering\small",
-              r"\caption{HS-6 codes whose top exporter supplies at least \DisruptThreshold{} of 2024 global exports (UN Comtrade), and the number of other MEKH materials lost when that exporter halts (every producing process disabled).}",
-              r"\label{table:disruption}", r"\begin{tabular}{lp{0.42\linewidth}lrr}\toprule",
-              r"MEKH & Material [HS Code] & Top exporter & Share & Dependents \\\midrule"]
-        T += [f"{cap(l)} & {tex(r['name'])} [{r['hs_code']}] & {tex(r['top_exporter_name'])} & {pct(r['top_share'])} & {r['n_dependents']} \\\\" for l, r in rows]
+              r"\caption{HS-6 codes whose top exporter supplies at least \DisruptThreshold{} of 2024 global exports (UN Comtrade), the number of reporting economies with a 2024 flow for the code (coverage), and the number of other MEKH materials lost when that exporter halts (every producing process disabled).}",
+              r"\label{table:disruption}", r"\begin{tabular}{lp{0.38\linewidth}lrrr}\toprule",
+              r"MEKH & Material [HS Code] & Top exporter & Share & Reporters & Dependents \\\midrule"]
+        T += [f"{cap(l)} & {tex(r['name'])} [{r['hs_code']}] & {tex(r['top_exporter_name'])} & {pct(r['top_share'])} & "
+              f"{r.get('n_reporters', '')} & {r['n_dependents']} \\\\" for l, r in rows]
         T += [r"\bottomrule\end{tabular}\end{table}}", ""]
     return T
 

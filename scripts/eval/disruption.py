@@ -53,6 +53,16 @@ def load_trade(path, codes: set) -> pd.DataFrame:
     df = t.select(["cmdCode", "partnerCode", "value"]).to_pandas()
     return df.groupby(["cmdCode", "partnerCode"], as_index=False)["value"].sum()
 
+def reporter_coverage(path, codes: set) -> tuple[dict, int]:
+    """({code: distinct reporters with a flow for it}, distinct reporters in the whole file),
+    both after excluding AGGREGATE_REPORTERS."""
+    t = _read_arrow(path)
+    t = t.filter(pc.invert(pc.is_in(t["reporterCode"], value_set=pa.array(sorted(AGGREGATE_REPORTERS), pa.int64()))))
+    total = len(pc.unique(t["reporterCode"]))
+    t = t.filter(pc.is_in(t["cmdCode"], value_set=pa.array(sorted(codes), pa.string())))
+    df = t.select(["cmdCode", "reporterCode"]).to_pandas()
+    return {str(k): int(v) for k, v in df.groupby("cmdCode")["reporterCode"].nunique().items()}, total
+
 def load_partners(path) -> dict:
     return {int(r["PartnerCode"]): (r["PartnerCodeIsoAlpha3"], r["PartnerDesc"]) for r in _read_arrow(path).to_pylist()}
 
@@ -84,7 +94,7 @@ def propagate(edges, removed: set) -> set:
     return disrupted
 
 def analyze_state(state: dict, dom: dict, base: str, partner_names: dict,
-                  include_unregistered: bool = False) -> list[dict]:
+                  include_unregistered: bool = False, n_reporters: dict | None = None) -> list[dict]:
     mats = state.get("materials", {})
     verts, edges, _ = build_hypergraph(state, include_unregistered)
     crit, _ = criticality(verts, edges, base) if base in verts else ({}, 0)
@@ -92,6 +102,7 @@ def analyze_state(state: dict, dom: dict, base: str, partner_names: dict,
     for code in sorted(map(str, mats)):
         r = {"hs_code": code, "name": mats[code].get("name", ""), "status": "", "total_exports": "",
              "top_exporter_code": "", "top_exporter_iso3": "", "top_exporter_name": "", "top_share": "",
+             "n_reporters": (n_reporters or {}).get(code, ""),
              "dominated": 0, "n_dependents": "", "dependents": "", "dependents_frac": "", "reach_loss": ""}
         if not SIX_DIGIT.match(code): r["status"] = "invalid"
         elif code not in dom: r["status"] = "absent"
@@ -131,7 +142,10 @@ def main() -> None:
     ap.add_argument("--partners", type=Path, required=True)
     ap.add_argument("--threshold", type=float, default=0.6)
     ap.add_argument("--out-dir", type=Path, required=True)
-    ap.add_argument("--summary-name", default="disruption_summary.csv")
+    ap.add_argument("--summary-name", default=None,
+                    help="default disruption_summary.csv (disruption_summary_inclunreg.csv with --include-unregistered)")
+    ap.add_argument("--csv-suffix", default=None,
+                    help="suffix for per-MEKH CSVs (default '' or '_inclunreg' with --include-unregistered)")
     ap.add_argument("--include-unregistered", action="store_true",
                     help="keep process-only 6-digit codes as vertices, as the original code did (sensitivity)")
     a = ap.parse_args()
@@ -139,15 +153,18 @@ def main() -> None:
     states = [(label, load_state(Path(p))) for label, p in a.folder]
     codes = {str(c) for _, s in states for c in s.get("materials", {}) if SIX_DIGIT.match(str(c))}
     dom = dominance(load_trade(a.trade, codes), a.threshold); partners = load_partners(a.partners)
+    n_rep, n_rep_total = reporter_coverage(a.trade, codes)
+    suffix = a.csv_suffix if a.csv_suffix is not None else ("_inclunreg" if a.include_unregistered else "")
+    summary_name = a.summary_name or f"disruption_summary{suffix}.csv"
     summ = []
     for label, st in states:
         rows = analyze_state(st, dom, bases.get(label, bases.get(label.rstrip("0123456789"), "")), partners,
-                             a.include_unregistered)
-        with open(a.out_dir / f"disruption_{label}.csv", "w", newline="") as f:
+                             a.include_unregistered, n_rep)
+        with open(a.out_dir / f"disruption_{label}{suffix}.csv", "w", newline="") as f:
             w = csv.DictWriter(f, fieldnames=list(rows[0])); w.writeheader(); w.writerows(rows)
-        s = summarize(label, rows); s["threshold"] = a.threshold; summ.append(s)
+        s = summarize(label, rows); s["threshold"] = a.threshold; s["n_reporters_total"] = n_rep_total; summ.append(s)
         print({k: v for k, v in s.items()})
-    with open(a.out_dir / a.summary_name, "w", newline="") as f:
+    with open(a.out_dir / summary_name, "w", newline="") as f:
         w = csv.DictWriter(f, fieldnames=list(summ[0])); w.writeheader(); w.writerows(summ)
 
 if __name__ == "__main__":

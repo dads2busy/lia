@@ -52,7 +52,8 @@ def test_build_hypergraph_drops_untyped_and_unregistered():
     assert edges == [(frozenset({"100000"}), frozenset({"300000"}))]
     assert audit == {"n_vertices": 2, "n_invalid_material_keys": 1, "n_edges": 1, "n_processes": 2,
                      "n_processes_no_target": 1, "n_processes_no_source": 0,
-                     "n_entries_untyped": 5, "n_entries_unregistered": 1}
+                     "n_entries_untyped": 5, "n_entries_unregistered": 1,
+                     "n_sourceless_untyped": 0, "n_sourceless_unregistered": 0, "n_sourceless_empty": 0}
     verts2, edges2, _ = build_hypergraph(state, include_unregistered=True)
     assert "999999" in verts2 and edges2[0][0] == frozenset({"100000", "999999"})
 
@@ -82,3 +83,16 @@ def test_drop_sourceless_variant():
     assert len(e2) == 2 and a2["n_processes_no_source"] == 1 and a2["n_edges"] == 2
     c2, r2 = criticality(v2, e2, "400000")
     assert precursor_set(e2) == {"100000"} and r2 == 2 and c2["100000"] == 2
+
+def test_sourceless_breakdown():
+    state = {"materials": {"100000": {"name": "Ore"}, "300000": {"name": "Int"}},
+             "processes": {
+                 "p_untyped": {"precursors": ["rock", {"hs_code": "Unknown"}], "products": [{"hs_code": "100000"}]},
+                 "p_unreg": {"precursors": ["air", {"hs_code": "999999"}], "products": [{"hs_code": "100000"}]},
+                 "p_empty": {"precursors": [], "products": [{"hs_code": "300000"}]},
+                 "p_none": {"products": [{"hs_code": "300000"}]},
+                 "p_ok": {"precursors": [{"hs_code": "100000"}], "products": [{"hs_code": "300000"}]},
+                 "p_notarget": {"precursors": ["x"], "products": ["y"]}}}
+    _, _, a = build_hypergraph(state)
+    assert a["n_processes_no_source"] == 4
+    assert (a["n_sourceless_untyped"], a["n_sourceless_unregistered"], a["n_sourceless_empty"]) == (1, 1, 2)

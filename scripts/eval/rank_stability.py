@@ -26,7 +26,7 @@ rank_stability_aggregate.csv (Borda list) and boron_degree_distribution.csv (in/
 `uv run --no-project --with matplotlib --with numpy python ...`).
 """
 from __future__ import annotations
-import argparse, csv, random, statistics
+import argparse, csv, math, random, statistics
 from itertools import combinations
 from pathlib import Path
 
@@ -46,6 +46,17 @@ def criticality_list(state: dict, base: str) -> tuple[dict, set, list]:
         raise ValueError(f"base {base} is not a registered vertex of this MEKH")
     c, _ = criticality(verts, edges, base)
     return c, verts, edges
+
+def rbo_weight(d: int, p: float) -> float:
+    """Weight of the top d ranks in RBO at persistence p (Webber et al. 2010, eq. 21):
+    W(d) = 1 - p^(d-1) + (1-p)/p * d * (ln(1/(1-p)) - sum_{i=1}^{d-1} p^i / i)."""
+    return 1 - p ** (d - 1) + (1 - p) / p * d * (math.log(1 / (1 - p)) - sum(p ** i / i for i in range(1, d)))
+
+def half_weight_depth(p: float, target: float = 0.5) -> int:
+    """Smallest depth d with rbo_weight(d, p) >= target."""
+    d = 1
+    while rbo_weight(d, p) < target: d += 1
+    return d
 
 def borda(lists: list[dict]) -> dict:
     """Sum over lists of the number of items in that list strictly below the material."""
@@ -161,7 +172,8 @@ def main() -> None:
         lists.append((label, c))
         ind, outd = degrees(verts, edges); degs.append({"in": list(ind.values()), "out": list(outd.values())})
         for m in c: names.setdefault(m, st["materials"].get(m, {}).get("name", ""))
-    summary = {"n_runs": len(lists), "base": a.base, "p": a.p, "k": a.k, "samples": a.samples, "seed": a.seed}
+    summary = {"n_runs": len(lists), "base": a.base, "p": a.p, "k": a.k, "samples": a.samples, "seed": a.seed,
+               "half_weight_depth": half_weight_depth(a.p)}
     per_run = []
     for agg_name, agg_fn in (("borda", borda), ("critsum", critsum)):
         agg = agg_fn([c for _, c in lists])

@@ -69,3 +69,20 @@ def test_aggregate_reporter_dropped_and_aggregate_partner_not_a_candidate(tmp_pa
     d = dominance(df, 0.6)["100000"]
     assert d["top_partner"] == 1 and d["total"] == pytest.approx(990) and d["share"] == pytest.approx(50 / 990)
     assert not d["dominated"]
+
+def test_reporter_coverage_counts_distinct_reporters_after_exclusion(tmp_path):
+    from scripts.eval.disruption import reporter_coverage
+    rows = [(1, 9, "100000", 50), (2, 9, "100000", 40), (1, 8, "100000", 5), (2, 97, "100000", 400),
+            (1, 9, "300000", 1), (5, 7, "999999", 10)]
+    per_code, total = reporter_coverage(_arrow(tmp_path / "t.arrow", rows), {"100000", "300000"})
+    assert per_code == {"100000": 2, "300000": 1}   # reporter 97 (EU aggregate) excluded
+    assert total == 3                                # distinct reporters in the whole file: 7, 8, 9
+
+def test_analyze_state_carries_n_reporters(tmp_path):
+    mats = {"100000": {"name": "Ore"}, "300000": {"name": "Int"}}
+    procs = {"p": {"precursors": [{"hs_code": "100000"}], "products": [{"hs_code": "300000"}]}}
+    df = load_trade(_arrow(tmp_path / "t.arrow", TRADE), set(mats))
+    rows = analyze_state({"materials": mats, "processes": procs}, dominance(df, 0.6), base="300000",
+                         partner_names={}, n_reporters={"100000": 2, "300000": 1})
+    by = {r["hs_code"]: r for r in rows}
+    assert by["100000"]["n_reporters"] == 2 and by["100000"]["dependents"] == "300000"
