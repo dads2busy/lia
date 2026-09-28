@@ -36,22 +36,29 @@ def test_primary_judge_n_and_warns_on_mismatch(tmp_path: Path, capsys):
     assert "boron" in err and "gallium" in err  # warning about n disagreement between judges
 
 def test_mekh_sizes_includes_gate_audit(tmp_path: Path):
+    # 2 registered materials; classes: (i) truly untyped -- bare string / missing
+    # or malformed hs_code; (ii) unregistered -- valid 6-digit code, not a
+    # known material. p_both exercises a process landing in BOTH classes.
     materials = {"111111": {}, "222222": {}}
     processes = {
-        "p_string": {"precursors": ["bare material string"], "products": [{"hs_code": "111111"}], "process_score": 0.9},
-        "p_unknown": {"precursors": [{"hs_code": "Unknown"}], "products": [{"hs_code": "222222"}], "process_score": 0.8},
-        "p_missing_material": {"precursors": [{"hs_code": "333333"}], "products": [{"hs_code": "222222"}], "process_score": 0.95},
-        "p_unscored": {"precursors": [{"hs_code": "111111"}], "products": [{"hs_code": "222222"}], "process_score": None},
-        "p_below_tau": {"precursors": [{"hs_code": "111111"}], "products": [{"hs_code": "222222"}], "process_score": 0.3},
+        "p_string": {"precursors": ["bare material string"], "products": [{"hs_code": "111111"}], "process_score": 0.9},  # untyped only
+        "p_unknown": {"precursors": [{"hs_code": "Unknown"}], "products": [{"hs_code": "222222"}], "process_score": 0.8},  # untyped only
+        "p_missing_material": {"precursors": [{"hs_code": "333333"}], "products": [{"hs_code": "222222"}], "process_score": 0.95},  # unregistered only
+        "p_both": {"precursors": [{"hs_code": "444444"}], "products": ["byproduct string", {"hs_code": "111111"}], "process_score": 0.85},  # untyped AND unregistered
+        "p_unscored": {"precursors": [{"hs_code": "111111"}], "products": [{"hs_code": "222222"}], "process_score": None},  # neither
+        "p_below_tau": {"precursors": [{"hs_code": "111111"}], "products": [{"hs_code": "222222"}], "process_score": 0.3},  # neither
     }
     (tmp_path / "research_state.json").write_text(json.dumps({"materials": materials, "processes": processes}))
     rows = mekh_sizes([("boron", tmp_path)])
-    assert rows == [{"label": "boron", "n_materials": 2, "n_processes": 5,
-                      "n_unscored": 1, "n_below_tau": 1, "n_untyped_edges": 3}]
+    assert rows == [{"label": "boron", "n_materials": 2, "n_processes": 6,
+                      "n_unscored": 1, "n_below_tau": 1, "n_untyped_edges": 3, "n_unregistered_edges": 2}]
     out = build_size_numbers(rows)
     assert r"\newcommand{\MekhUnscoredBoron}{1}" in out and r"\newcommand{\MekhBelowTauBoron}{1}" in out
-    assert r"\newcommand{\MekhUntypedEdgesBoron}{3}" in out
-    assert r"\newcommand{\MekhUnscoredFracBoron}{20\%}" in out
-    assert r"\newcommand{\MekhUntypedEdgesFracBoron}{60\%}" in out
-    assert r"\newcommand{\MekhProcessesAll}{5}" in out
+    assert r"\newcommand{\MekhUntypedEdgesBoron}{3}" in out  # p_string, p_unknown, p_both
+    assert r"\newcommand{\MekhUnregisteredEdgesBoron}{2}" in out  # p_missing_material, p_both
+    assert r"\newcommand{\MekhUnscoredFracBoron}{17\%}" in out
+    assert r"\newcommand{\MekhUntypedEdgesFracBoron}{50\%}" in out
+    assert r"\newcommand{\MekhUnregisteredEdgesFracBoron}{33\%}" in out
+    assert r"\newcommand{\MekhProcessesAll}{6}" in out
     assert r"\newcommand{\MekhUnscoredAll}{1}" in out and r"\newcommand{\MekhUntypedEdgesAll}{3}" in out
+    assert r"\newcommand{\MekhUnregisteredEdgesAll}{2}" in out
