@@ -339,6 +339,36 @@ def _strip_code_fence(text: str) -> str:
     return text
 
 
+def _find_json_objects(text: str) -> list[dict]:
+    """Scan `text` and return every top-level JSON object found, in order.
+
+    The judge is instructed to reply with only one JSON object, but in
+    practice it sometimes self-corrects mid-reply (e.g. emits a first
+    verdict, then "Wait -- correcting this:" followed by a second, final
+    verdict) or trails off with unrelated JSON-ish prose after the verdict.
+    A plain `json.loads()` fails on any of this trailing/leading data.
+    Returning every object found (see parse_claude_cli_stdout for how the
+    right one is chosen) is robust to both cases.
+    """
+    decoder = json.JSONDecoder()
+    n = len(text)
+    idx = 0
+    found: list[dict] = []
+    while idx < n:
+        if text[idx].isspace():
+            idx += 1
+            continue
+        try:
+            obj, end = decoder.raw_decode(text, idx)
+        except json.JSONDecodeError:
+            idx += 1
+            continue
+        if isinstance(obj, dict):
+            found.append(obj)
+        idx = end
+    return found
+
+
 def parse_claude_cli_stdout(stdout: str) -> tuple[ProcessVerdict, Optional[str]]:
     """Parse the JSON stdout of `claude -p --output-format json` into a verdict.
 
@@ -359,8 +389,29 @@ def parse_claude_cli_stdout(stdout: str) -> tuple[ProcessVerdict, Optional[str]]
     if not isinstance(result_text, str) or not result_text.strip():
         raise ValueError("claude CLI response missing non-empty 'result' text")
     inner_text = _strip_code_fence(result_text)
-    payload = json.loads(inner_text)
-    verdict = ProcessVerdict.model_validate(payload)
+    candidates = _find_json_objects(inner_text)
+    if not candidates:
+        raise ValueError(f"no JSON object found in claude CLI result text: {inner_text!r}")
+
+    # Pick the LAST object that validates as a ProcessVerdict, not just the
+    # last JSON object found: a decoy/unrelated JSON blob (or a retracted
+    # first guess -- see _find_json_objects) before or after the real verdict
+    # must not be mistaken for it.
+    verdict: Optional[ProcessVerdict] = None
+    last_error: Optional[BaseException] = None
+    for candidate in reversed(candidates):
+        try:
+            verdict = ProcessVerdict.model_validate(candidate)
+            break
+        except Exception as e:
+            last_error = e
+            continue
+    if verdict is None:
+        raise ValueError(
+            f"no candidate JSON object validated as ProcessVerdict "
+            f"({len(candidates)} found): {last_error}"
+        )
+
     model_usage = outer.get("modelUsage") or {}
     actual_model = next(iter(model_usage), None)
     return verdict, actual_model
