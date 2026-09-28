@@ -350,6 +350,11 @@ def parse_claude_cli_stdout(stdout: str) -> tuple[ProcessVerdict, Optional[str]]
     malformed input -- the caller is responsible for retrying.
     """
     outer = json.loads(stdout)
+    if outer.get("is_error"):
+        raise ValueError(
+            f"claude CLI reported is_error=true: {outer.get('result')!r} "
+            f"(api_error_status={outer.get('api_error_status')!r})"
+        )
     result_text = outer.get("result")
     if not isinstance(result_text, str) or not result_text.strip():
         raise ValueError("claude CLI response missing non-empty 'result' text")

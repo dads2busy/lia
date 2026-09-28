@@ -79,3 +79,18 @@ def test_parse_result_missing_required_field_raises():
     stdout = _cli_stdout(json.dumps(incomplete))
     with pytest.raises(Exception):  # pydantic.ValidationError
         parse_claude_cli_stdout(stdout)
+
+
+def test_parse_is_error_true_raises_before_json_parsing():
+    # Observed in practice: a rate-limited/errored CLI call still returns a
+    # well-formed envelope with is_error=true and a human-readable (non-JSON)
+    # "result" string, e.g. "You've hit your session limit · resets 3pm".
+    # This must raise immediately rather than trying to JSON-parse `result`.
+    stdout = json.dumps({
+        "is_error": True,
+        "api_error_status": 429,
+        "result": "You've hit your session limit · resets 3pm (America/New_York)",
+        "modelUsage": {},
+    })
+    with pytest.raises(ValueError, match="is_error"):
+        parse_claude_cli_stdout(stdout)
