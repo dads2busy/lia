@@ -88,9 +88,9 @@ def _write_new_inputs(d: Path):
         "boron,74,0,2,72,4,0.0556,1,3,8,284019,Disodium tetraborate,TUR,Türkiye,0.7243,8,0.1096,x,0.6\n")
     (d / "disruption_boron.csv").write_text(
         "hs_code,name,status,total_exports,top_exporter_code,top_exporter_iso3,top_exporter_name,top_share,dominated,"
-        "n_dependents,dependents,dependents_frac,reach_loss\n"
-        "284019,Disodium tetraborate,ok,1.0,792,TUR,Türkiye,0.7243,1,8,281000 284011,0.1096,9\n"
-        "280450,Elemental boron,ok,1.0,392,JPN,Japan,0.3,0,,,,\n")
+        "n_reporters,n_dependents,dependents,dependents_frac,reach_loss\n"
+        "284019,Disodium tetraborate,ok,1.0,792,TUR,Türkiye,0.7243,1,85,8,281000 284011,0.1096,9\n"
+        "280450,Elemental boron,ok,1.0,392,JPN,Japan,0.3,0,40,,,,\n")
 
 def test_new_result_macros(tmp_path: Path):
     _write_new_inputs(tmp_path)
@@ -125,7 +125,9 @@ def test_new_tables_are_wrapped_in_macros(tmp_path: Path):
     assert r"\newcommand{\CriticalityTable}{" in t and r"\label{table:criticality}" in t
     assert r"\textbf{Elemental boron [280450]} & \textbf{73} \\" in t and r"Raw water \& ice [220190] & 10 \\" in t
     assert r"\newcommand{\DisruptionTable}{" in t and r"\label{table:disruption}" in t
-    assert "Disodium tetraborate [284019] & Türkiye & 72\\% &  & 8 \\\\"  # reporters column empty in this fixture in t and "280450" not in t.split("DisruptionTable")[1]
+    # full row incl. the Reporters cell (85); the non-dominated 280450 must not appear
+    assert "Boron & Disodium tetraborate [284019] & Türkiye & 72\\% & 85 & 8 \\\\" in t
+    assert "280450" not in t.split("DisruptionTable")[1]
 
 def test_followup_macros_coverage_inclunreg_halfweight_sourceless(tmp_path: Path):
     from scripts.eval.make_latex import build_tables
@@ -136,8 +138,6 @@ def test_followup_macros_coverage_inclunreg_halfweight_sourceless(tmp_path: Path
     rs.write_text(lines[0] + ",half_weight_depth\n" + lines[1] + ",14\n")
     ds = tmp_path / "disruption_summary.csv"; lines = ds.read_text().splitlines()
     ds.write_text(lines[0] + ",n_reporters_total\n" + lines[1] + ",151\n")
-    db = tmp_path / "disruption_boron.csv"; lines = db.read_text().splitlines()
-    db.write_text("\n".join([lines[0] + ",n_reporters"] + [l + ",37" for l in lines[1:]]) + "\n")
     (tmp_path / "disruption_summary_inclunreg.csv").write_text(
         ds.read_text().replace("boron,74,0,2,72,4,0.0556,1,3,", "boron,74,0,2,72,3,0.0417,2,1,"))
     (tmp_path / "disruption_boron_inclunreg.csv").write_text(
@@ -161,4 +161,4 @@ def test_followup_macros_coverage_inclunreg_halfweight_sourceless(tmp_path: Path
     names = [l.split("}{")[0][len("\\newcommand{\\"):] for l in out.splitlines() if l.startswith("\\newcommand")]
     assert all(n.isalpha() for n in names) and len(names) == len(set(names))
     t = build_tables(tmp_path)
-    assert "Share & Reporters & Dependents" in t and "& 72\\% & 37 & 8 \\\\" in t
+    assert "Share & Reporters & Dependents" in t and "& 72\\% & 85 & 8 \\\\" in t

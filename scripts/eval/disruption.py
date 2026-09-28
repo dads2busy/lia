@@ -54,9 +54,10 @@ def load_trade(path, codes: set) -> pd.DataFrame:
     return df.groupby(["cmdCode", "partnerCode"], as_index=False)["value"].sum()
 
 def reporter_coverage(path, codes: set) -> tuple[dict, int]:
-    """({code: distinct reporters with a flow for it}, distinct reporters in the whole file),
-    both after excluding AGGREGATE_REPORTERS."""
+    """({code: distinct reporters with a nonzero flow for it}, distinct reporters with any nonzero
+    flow in the whole file), both after excluding AGGREGATE_REPORTERS."""
     t = _read_arrow(path)
+    t = t.filter(pc.greater(t["value"], 0))
     t = t.filter(pc.invert(pc.is_in(t["reporterCode"], value_set=pa.array(sorted(AGGREGATE_REPORTERS), pa.int64()))))
     total = len(pc.unique(t["reporterCode"]))
     t = t.filter(pc.is_in(t["cmdCode"], value_set=pa.array(sorted(codes), pa.string())))

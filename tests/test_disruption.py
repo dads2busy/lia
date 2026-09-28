@@ -86,3 +86,10 @@ def test_analyze_state_carries_n_reporters(tmp_path):
                          partner_names={}, n_reporters={"100000": 2, "300000": 1})
     by = {r["hs_code"]: r for r in rows}
     assert by["100000"]["n_reporters"] == 2 and by["100000"]["dependents"] == "300000"
+
+def test_reporter_coverage_ignores_zero_value_flows(tmp_path):
+    from scripts.eval.disruption import reporter_coverage
+    rows = [(1, 9, "100000", 50), (2, 8, "100000", 0), (1, 6, "300000", 0), (1, 7, "300000", 3)]
+    per_code, total = reporter_coverage(_arrow(tmp_path / "z.arrow", rows), {"100000", "300000"})
+    assert per_code == {"100000": 1, "300000": 1}   # reporters 8 and 6 only have zero-value rows
+    assert total == 2                                # 9 and 7

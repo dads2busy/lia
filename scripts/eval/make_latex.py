@@ -273,7 +273,7 @@ def _section6_tables(d: Path) -> list[str]:
         rows += [(s["label"], r) for r in sorted(dom, key=lambda r: (-int(r["n_dependents"] or 0), r["hs_code"]))]
     if rows:
         T += [r"\newcommand{\DisruptionTable}{\begin{table}[t]\centering\small",
-              r"\caption{HS-6 codes whose top exporter supplies at least \DisruptThreshold{} of 2024 global exports (UN Comtrade), the number of reporting economies with a 2024 flow for the code (coverage), and the number of other MEKH materials lost when that exporter halts (every producing process disabled).}",
+              r"\caption{HS-6 codes whose top exporter has at least \DisruptThreshold{} of 2024 exports as recorded by importing reporters (UN Comtrade mirror data). Reporters: economies reporting the code; Dependents: other MEKH materials lost if that exporter halts.}",
               r"\label{table:disruption}", r"\begin{tabular}{lp{0.38\linewidth}lrrr}\toprule",
               r"MEKH & Material [HS Code] & Top exporter & Share & Reporters & Dependents \\\midrule"]
         T += [f"{cap(l)} & {tex(r['name'])} [{r['hs_code']}] & {tex(r['top_exporter_name'])} & {pct(r['top_share'])} & "
