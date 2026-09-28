@@ -71,12 +71,16 @@ def _write_new_inputs(d: Path):
         "boron,280450,Elemental boron,73,1,74,0,127,129,2,31,61,65,2,"
         "280700,Sulfuric acid,14,220190,Raw water & ice,10,252800,Natural borates,10\n")
     (d / "rank_stability.csv").write_text(
-        "n_runs,base,p,k,samples,seed,borda_rbo_mean,borda_rbo_sd,borda_rbo_min,borda_rbo_max,borda_topk_overlap_mean,"
-        "borda_topk_overlap_sd,borda_topk_jaccard_mean,borda_topk_codes,critsum_rbo_mean,critsum_rbo_sd,critsum_rbo_min,"
-        "critsum_rbo_max,critsum_topk_overlap_mean,critsum_topk_overlap_sd,critsum_topk_jaccard_mean,pairwise_rbo_mean,"
-        "pairwise_rbo_sd,pairwise_topk_overlap_mean\n"
-        "7,280450,0.98,10,1000,0,0.5721,0.0288,0.5179,0.624,5.0167,0.9517,0.3412,281000 284019,0.6044,0.0348,0.5389,"
-        "0.6613,4.99,1.38,0.34,0.4218,0.0613,3.2921\n")
+        "n_runs,base,p,k,samples,seed,borda_rbo_mean,borda_rbo_sd,borda_rbo_sd_pop,borda_rbo_min,borda_rbo_max,"
+        "borda_topk_overlap_mean,borda_topk_overlap_sd,borda_topk_jaccard_mean,borda_topk_codes,critsum_rbo_mean,"
+        "critsum_rbo_sd,critsum_rbo_sd_pop,critsum_rbo_min,critsum_rbo_max,critsum_topk_overlap_mean,critsum_topk_overlap_sd,"
+        "critsum_topk_jaccard_mean,n_pairs,pairwise_rbo_mean,pairwise_rbo_sd,pairwise_rbo_sd_pop,pairwise_rbo_min,"
+        "pairwise_rbo_max,pairwise_topk_overlap_mean,pairwise_topk_overlap_sd\n"
+        "7,280450,0.98,10,1000,0,0.5721,0.0311,0.0288,0.5179,0.624,5.0167,1.03,0.3412,281000 284019,0.6044,0.0376,"
+        "0.0348,0.5389,0.6613,4.99,1.49,0.34,21,0.4218,0.0628,0.0613,0.30,0.55,3.2921,1.1\n")
+    (d / "criticality_summary_nosourceless.csv").write_text(
+        "label,base_code,base_name,reach,n_pre,top1_code,top1_name,top1_criticality\n"
+        "boron,280450,Elemental boron,40,20,252800,Natural borates,12\n")
     (d / "disruption_summary.csv").write_text(
         "label,n_codes,n_invalid,n_absent,n_in_comtrade,n_dominated,frac_dominated,n_dominated_cascading,n_dominated_local,"
         "total_dependents,max_code,max_name,max_supplier_iso3,max_supplier_name,max_share,max_dependents,max_dependents_frac,"
@@ -95,7 +99,12 @@ def test_new_result_macros(tmp_path: Path):
               r"\newcommand{\CritTopNameBoron}{Sulfuric acid}", r"\newcommand{\CritTopCodeBoron}{280700}",
               r"\newcommand{\CritTopBoron}{14}", r"\newcommand{\CritSecondNameBoron}{Raw water \& ice}",
               r"\newcommand{\CritThirdBoron}{10}",
-              r"\newcommand{\RboMean}{0.572}", r"\newcommand{\RboSd}{0.029}", r"\newcommand{\RboRuns}{7}",
+              r"\newcommand{\RboMean}{0.572}", r"\newcommand{\RboSd}{0.031}", r"\newcommand{\RboSdPop}{0.029}",
+              r"\newcommand{\RboRuns}{7}", r"\newcommand{\RboPairwiseSd}{0.063}", r"\newcommand{\RboPairs}{21}",
+              r"\newcommand{\RboSensitivityCritsumMean}{0.604}", r"\newcommand{\RboSensitivityCritsumSd}{0.038}",
+              r"\newcommand{\CritReachNoSourcelessBoron}{40}", r"\newcommand{\CritPreNoSourcelessBoron}{20}",
+              r"\newcommand{\CritTopNameNoSourcelessBoron}{Natural borates}",
+              r"\newcommand{\CritTopCodeNoSourcelessBoron}{252800}", r"\newcommand{\CritTopNoSourcelessBoron}{12}",
               r"\newcommand{\RboPersistence}{0.98}", r"\newcommand{\RboTopTenOverlap}{5.0}",
               r"\newcommand{\RboTopTenJaccard}{34\%}", r"\newcommand{\RboPairwiseMean}{0.422}",
               r"\newcommand{\DisruptThreshold}{60\%}", r"\newcommand{\DisruptDominatedBoron}{4}",
@@ -106,6 +115,8 @@ def test_new_result_macros(tmp_path: Path):
         assert m in out, m
     names = [l.split("}{")[0][len("\\newcommand{\\"):] for l in out.splitlines() if l.startswith("\\newcommand")]
     assert all(n.isalpha() for n in names)
+    assert "RboCritsumMean" not in names   # critsum only under an explicit sensitivity name
+    assert "ddof=1" in out and "strictly below" in out   # comments make the headline definitions explicit
 
 def test_new_tables_are_wrapped_in_macros(tmp_path: Path):
     from scripts.eval.make_latex import build_tables

@@ -66,3 +66,19 @@ def test_run_folder_writes_ranked_csv(tmp_path: Path):
     text = (tmp_path / "criticality_toy.csv").read_text().splitlines()
     assert text[0].startswith("rank,hs_code,name,criticality")
     assert text[1].split(",")[3] == "2"
+
+def test_drop_sourceless_variant():
+    # p_mine has only untyped inputs: under the literal rule its empty source set is vacuously
+    # satisfied and it fires; with drop_sourceless it is removed, so its ore becomes a precursor.
+    state = {"materials": {"100000": {"name": "Ore"}, "300000": {"name": "Int"}, "400000": {"name": "Metal"}},
+             "processes": {"p_mine": {"precursors": ["rock"], "products": [{"hs_code": "100000"}]},
+                           "p1": {"precursors": [{"hs_code": "100000"}], "products": [{"hs_code": "300000"}]},
+                           "p2": {"precursors": [{"hs_code": "300000"}], "products": [{"hs_code": "400000"}]}}}
+    v, e, a = build_hypergraph(state)
+    assert len(e) == 3 and a["n_processes_no_source"] == 1
+    c, r = criticality(v, e, "400000")
+    assert r == 3 and c["100000"] == 3 and precursor_set(e) == set()
+    v2, e2, a2 = build_hypergraph(state, drop_sourceless=True)
+    assert len(e2) == 2 and a2["n_processes_no_source"] == 1 and a2["n_edges"] == 2
+    c2, r2 = criticality(v2, e2, "400000")
+    assert precursor_set(e2) == {"100000"} and r2 == 2 and c2["100000"] == 2

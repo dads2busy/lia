@@ -9,7 +9,8 @@ Usage: python scripts/eval/disruption.py --out-dir "$DATA" \
           --folder boron "$STATE_B" [--folder cobalt "$STATE_CO" ...]
 
 For every registered material code: invalid (not 6 digits) / absent (no 2024 Comtrade row)
-/ in Comtrade. For codes in Comtrade, global exports = sum of all flow values for the code,
+/ in Comtrade. For codes in Comtrade, global exports = sum of all flow values for the code (aggregate
+reporters such as the EU, 97, excluded; see AGGREGATE_REPORTERS / AGGREGATE_PARTNERS),
 the top exporter = the partner (exporting country; partnerCode, as in
 map_exports_to_material.py where "from" = partner) with the largest summed value, and the code
 is dominated when that share is >= threshold. Disruption of a dominated code is propagated
@@ -35,10 +36,20 @@ from scripts.eval.criticality import SIX_DIGIT, DEFAULT_BASE, build_hypergraph, 
 def _read_arrow(path) -> pa.Table:
     return pa.ipc.open_file(pa.memory_map(str(path), "r")).read_all()
 
+# Non-country codes (partnerAreas.arrow / 2024 flows). Reporter 97 = EU aggregate: its member
+# states also report the same flows, so keeping it double-counts EU imports. Partner codes below
+# are regional "nes" residuals, bunkers, free zones, special categories and "Areas, nes": they stay
+# in a code's global total but can never be its top exporter. 490 "Other Asia, nes" is kept as a
+# country (Comtrade's code for Taiwan).
+AGGREGATE_REPORTERS = {0, 97}
+AGGREGATE_PARTNERS = {0, 97, 473, 527, 568, 577, 636, 637, 837, 838, 839, 899}
+
 def load_trade(path, codes: set) -> pd.DataFrame:
-    """Rows of the Comtrade arrow file for the given cmdCodes, summed by (cmdCode, partnerCode)."""
+    """Rows of the Comtrade arrow file for the given cmdCodes, without aggregate reporters,
+    summed by (cmdCode, partnerCode)."""
     t = _read_arrow(path)
     t = t.filter(pc.is_in(t["cmdCode"], value_set=pa.array(sorted(codes), pa.string())))
+    t = t.filter(pc.invert(pc.is_in(t["reporterCode"], value_set=pa.array(sorted(AGGREGATE_REPORTERS), pa.int64()))))
     df = t.select(["cmdCode", "partnerCode", "value"]).to_pandas()
     return df.groupby(["cmdCode", "partnerCode"], as_index=False)["value"].sum()
 
@@ -50,7 +61,9 @@ def dominance(df: pd.DataFrame, threshold: float) -> dict:
     for code, g in df.groupby("cmdCode"):
         total = float(g["value"].sum())
         if total <= 0: continue
-        top = g.sort_values(["value", "partnerCode"], ascending=[False, True]).iloc[0]
+        cand = g[~g["partnerCode"].isin(AGGREGATE_PARTNERS)]
+        if cand.empty: continue
+        top = cand.sort_values(["value", "partnerCode"], ascending=[False, True]).iloc[0]
         share = float(top["value"]) / total
         out[str(code)] = {"total": total, "top_partner": int(top["partnerCode"]), "top_value": float(top["value"]),
                           "share": share, "dominated": share >= threshold}

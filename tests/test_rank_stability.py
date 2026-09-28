@@ -39,4 +39,18 @@ def test_degree_table_mean_sd_with_zero_fill():
     d = {r["degree"]: r for r in rows}
     assert d[0]["in_mean"] == pytest.approx(0.5) and d[1]["in_mean"] == pytest.approx(1.5)
     assert d[2]["out_mean"] == pytest.approx(0.5) and d[2]["in_mean"] == 0
-    assert d[1]["in_sd"] == pytest.approx(0.5)   # population sd of (2, 1)
+    assert d[1]["in_sd"] == pytest.approx(0.5 ** 0.5)   # sample sd (ddof=1) of (2, 1)
+
+def test_stats_sample_sd_headline_and_population_sd_labelled():
+    from scripts.eval.rank_stability import stats
+    s = stats([1.0, 2.0, 3.0])
+    assert s["mean"] == pytest.approx(2.0) and s["sd"] == pytest.approx(1.0)       # ddof=1
+    assert s["sd_pop"] == pytest.approx((2 / 3) ** 0.5) and s["min"] == 1.0 and s["max"] == 3.0
+
+def test_criticality_list_fails_loudly_when_base_missing():
+    from scripts.eval.rank_stability import criticality_list
+    state = {"materials": {"100000": {"name": "Ore"}, "300000": {"name": "Int"}},
+             "processes": {"p": {"precursors": [{"hs_code": "100000"}], "products": [{"hs_code": "300000"}]}}}
+    assert criticality_list(state, "300000")[0] == {"100000": 1}
+    with pytest.raises(ValueError, match="280450"):
+        criticality_list(state, "280450")

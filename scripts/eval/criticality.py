@@ -12,10 +12,14 @@ malformed codes ("untyped") and well-formed codes that are not registered materi
 ("unregistered", process-only codes) are dropped and counted. --include-unregistered
 turns process-only 6-digit codes into vertices instead (sensitivity check). Processes
 left with no target are dropped (they cannot make anything reachable); processes left
-with no source fire unconditionally, as the definition implies.
+with no source (all inputs untyped/unregistered) fire unconditionally -- the empty source set
+vacuously satisfies the Reachable-set definition. --drop-sourceless drops them instead
+(sensitivity variant; their products then become precursors if nothing else makes them).
 
-m_start = {m_base} U Pre; c(m) = |R(m_start, H)| - |R(m_start \\ m, H \\ m)| where removing
-m forbids it as a source and as a target. Writes "$OUT/criticality_<label>.csv" (ranked,
+m_start = {m_base} U Pre; c(m) = |R(m_start, H)| - |R(m_start \\ m, H \\ m)|. Deletion
+semantics of H \\ m (a ban on m): m leaves the start set, no hyperedge with m in its source set
+can fire, and m is never counted as reachable; hyperedges that produce m still fire when their
+sources are available, so their co-products survive. Writes "$OUT/criticality_<label>.csv" (ranked,
 ties broken by HS code) and "$OUT/criticality_summary.csv".
 """
 from __future__ import annotations
@@ -34,7 +38,8 @@ def _code(entry) -> str | None:
         return c if SIX_DIGIT.match(c) else None
     return None
 
-def build_hypergraph(state: dict, include_unregistered: bool = False) -> tuple[set, list[Edge], dict]:
+def build_hypergraph(state: dict, include_unregistered: bool = False,
+                     drop_sourceless: bool = False) -> tuple[set, list[Edge], dict]:
     """Return (vertices, edges, audit) for a research_state dict (see module doc)."""
     mats = state.get("materials", {})
     verts = {str(k) for k in mats if SIX_DIGIT.match(str(k))}
@@ -61,7 +66,9 @@ def build_hypergraph(state: dict, include_unregistered: bool = False) -> tuple[s
         if not tgt:
             audit["n_processes_no_target"] += 1
             continue
-        if not src: audit["n_processes_no_source"] += 1
+        if not src:
+            audit["n_processes_no_source"] += 1
+            if drop_sourceless: continue
         edges.append((src, tgt))
     audit["n_edges"] = len(edges)
     return verts, edges, audit
@@ -109,9 +116,10 @@ def load_state(folder: Path) -> dict:
     return json.loads((Path(folder) / "research_state.json").read_text())
 
 def run_folder(label: str, folder: Path, base: str, out_dir: Path | None = None,
-               include_unregistered: bool = False) -> tuple[dict, list[dict]]:
+               include_unregistered: bool = False, drop_sourceless: bool = False,
+               csv_suffix: str = "") -> tuple[dict, list[dict]]:
     state = load_state(folder); mats = state.get("materials", {})
-    verts, edges, audit = build_hypergraph(state, include_unregistered)
+    verts, edges, audit = build_hypergraph(state, include_unregistered, drop_sourceless)
     if base not in verts:
         raise SystemExit(f"{label}: base {base} is not a registered vertex")
     c, r0 = criticality(verts, edges, base)
@@ -122,7 +130,7 @@ def run_folder(label: str, folder: Path, base: str, out_dir: Path | None = None,
         rows.append({"rank": rank, "hs_code": m, "name": mats.get(m, {}).get("name", ""), "criticality": v,
                      "in_reach": int(m in R), "in_pre": int(m in pre), "in_degree": ind[m], "out_degree": outd[m]})
     if out_dir is not None:
-        with open(Path(out_dir) / f"criticality_{label}.csv", "w", newline="") as f:
+        with open(Path(out_dir) / f"criticality_{label}{csv_suffix}.csv", "w", newline="") as f:
             w = csv.DictWriter(f, fieldnames=list(rows[0]) if rows else ["rank", "hs_code", "name", "criticality"])
             w.writeheader(); w.writerows(rows)
     top = rows[:3]
@@ -141,13 +149,16 @@ def main() -> None:
     ap.add_argument("--base", nargs=2, action="append", metavar=("LABEL", "HSCODE"), default=[])
     ap.add_argument("--out-dir", type=Path, required=True)
     ap.add_argument("--include-unregistered", action="store_true")
+    ap.add_argument("--drop-sourceless", action="store_true",
+                    help="drop processes with no registered input (sensitivity); per-MEKH CSVs get suffix _nosourceless")
     ap.add_argument("--summary-name", default="criticality_summary.csv")
     a = ap.parse_args()
     bases = DEFAULT_BASE | dict(a.base)
     out = []
     for label, path in a.folder:
         s, _ = run_folder(label, Path(path), bases[label.split(".")[0]] if label not in bases else bases[label],
-                          a.out_dir, a.include_unregistered)
+                          a.out_dir, a.include_unregistered, a.drop_sourceless,
+                          "_nosourceless" if a.drop_sourceless else "")
         out.append(s)
         print(label, s["base_code"], "R =", s["reach"], [(s[f"top{i}_code"], s[f"top{i}_criticality"]) for i in (1, 2, 3)])
     with open(a.out_dir / a.summary_name, "w", newline="") as f:

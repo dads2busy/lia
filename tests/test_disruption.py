@@ -57,3 +57,15 @@ def test_analyze_state_counts_invalid_and_absent(tmp_path):
     assert s["n_codes"] == 9 and s["n_invalid"] == 1 and s["n_absent"] == 5 and s["n_in_comtrade"] == 3
     assert s["n_dominated"] == 2 and s["n_dominated_cascading"] == 2
     assert s["max_code"] == "100000" and s["max_dependents"] == 2 and s["max_supplier_iso3"] == "AAA"
+
+def test_aggregate_reporter_dropped_and_aggregate_partner_not_a_candidate(tmp_path):
+    from scripts.eval.disruption import AGGREGATE_REPORTERS, AGGREGATE_PARTNERS
+    assert 97 in AGGREGATE_REPORTERS and {899, 839} <= AGGREGATE_PARTNERS
+    rows = [(1, 9, "100000", 50), (2, 9, "100000", 40),
+            (2, 97, "100000", 400),          # EU aggregate reporter: double-counts members -> dropped
+            (899, 9, "100000", 900)]         # "Areas, nes": stays in the total, never the top exporter
+    df = load_trade(_arrow(tmp_path / "t.arrow", rows), {"100000"})
+    assert 97 not in set(df.get("reporterCode", [])) and df["value"].sum() == pytest.approx(990)
+    d = dominance(df, 0.6)["100000"]
+    assert d["top_partner"] == 1 and d["total"] == pytest.approx(990) and d["share"] == pytest.approx(50 / 990)
+    assert not d["dominated"]

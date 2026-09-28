@@ -176,17 +176,33 @@ def _section6_numbers(d: Path) -> list[str]:
         for i, pos in enumerate(("Top", "Second", "Third"), 1):
             L += [macro(f"Crit{pos}Code", l, r[f"top{i}_code"]), macro(f"Crit{pos}Name", l, tex(r[f"top{i}_name"])),
                   macro(f"Crit{pos}", l, r[f"top{i}_criticality"])]
+    for r in _read(d / "criticality_summary_nosourceless.csv"):
+        # sensitivity: processes with no registered input dropped instead of firing unconditionally
+        l = r["label"]
+        L += [macro("CritReachNoSourceless", l, r["reach"]), macro("CritPreNoSourceless", l, r["n_pre"]),
+              macro("CritTopCodeNoSourceless", l, r["top1_code"]),
+              macro("CritTopNameNoSourceless", l, tex(r["top1_name"])),
+              macro("CritTopNoSourceless", l, r["top1_criticality"])]
     for r in _read(d / "rank_stability.csv")[:1]:
-        L += [macro("RboMean", "", f3(r["borda_rbo_mean"])), macro("RboSd", "", f3(r["borda_rbo_sd"])),
+        L += ["% RQ3: \\RboMean/\\RboSd = RBO_ext (p=\\RboPersistence) of each run's criticality list vs the classic "
+              "Borda aggregate (a material scores, per list, one point per material ranked strictly below it); "
+              "SDs are sample SDs (ddof=1), \\RboSdPop is the population SD (ddof=0). \\RboPairwise* = run vs run "
+              "over all \\RboPairs pairs. \\RboSensitivityCritsum* = aggregate by summed criticality (sensitivity only).",
+              macro("RboMean", "", f3(r["borda_rbo_mean"])), macro("RboSd", "", f3(r["borda_rbo_sd"])),
+              macro("RboSdPop", "", f3(r["borda_rbo_sd_pop"])),
               macro("RboMin", "", f3(r["borda_rbo_min"])), macro("RboMax", "", f3(r["borda_rbo_max"])),
               macro("RboRuns", "", r["n_runs"]), macro("RboPersistence", "", r["p"]), macro("RboBase", "", r["base"]),
               macro("RboTopK", "", r["k"]), macro("RboTieSamples", "", r["samples"]),
               macro("RboTopTenOverlap", "", f"{float(r['borda_topk_overlap_mean']):.1f}"),
               macro("RboTopTenOverlapSd", "", f"{float(r['borda_topk_overlap_sd']):.1f}"),
               macro("RboTopTenJaccard", "", pct(r["borda_topk_jaccard_mean"])),
-              macro("RboCritsumMean", "", f3(r["critsum_rbo_mean"])), macro("RboCritsumSd", "", f3(r["critsum_rbo_sd"])),
+              macro("RboSensitivityCritsumMean", "", f3(r["critsum_rbo_mean"])),
+              macro("RboSensitivityCritsumSd", "", f3(r["critsum_rbo_sd"])),
+              macro("RboPairs", "", r["n_pairs"]),
               macro("RboPairwiseMean", "", f3(r["pairwise_rbo_mean"])), macro("RboPairwiseSd", "", f3(r["pairwise_rbo_sd"])),
-              macro("RboPairwiseTopTenOverlap", "", f"{float(r['pairwise_topk_overlap_mean']):.1f}")]
+              macro("RboPairwiseMin", "", f3(r["pairwise_rbo_min"])), macro("RboPairwiseMax", "", f3(r["pairwise_rbo_max"])),
+              macro("RboPairwiseTopTenOverlap", "", f"{float(r['pairwise_topk_overlap_mean']):.1f}"),
+              macro("RboPairwiseTopTenOverlapSd", "", f"{float(r['pairwise_topk_overlap_sd']):.1f}")]
     ds = _read(d / "disruption_summary.csv")
     if ds:
         L.append(macro("DisruptThreshold", "", pct(ds[0]["threshold"])))
