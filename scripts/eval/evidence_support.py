@@ -7,6 +7,8 @@ from __future__ import annotations
 import argparse, csv, hashlib, json, re
 from pathlib import Path
 
+GENERIC_TERMS = {"water", "air", "steam", "salt", "gas", "acid", "ore", "residue", "resid"}
+
 def _norm(s: str) -> str:
     return re.sub(r"\s+", " ", re.sub(r"[^a-z0-9+\- ]", " ", s.lower())).strip()
 
@@ -14,18 +16,39 @@ def _ref_url(ref) -> str:
     return ref if isinstance(ref, str) else (ref.get("url") or "")
 
 def material_terms(m, materials: dict) -> set[str]:
-    """Names + aliases for a precursor/product entry; falls back to the inline name or bare string."""
+    """Names + aliases for a precursor/product entry; falls back to the inline name or bare string.
+
+    Filtering: keep multi-word terms if len >= 3; keep single-token terms only if len >= 4 AND not in GENERIC_TERMS.
+    """
     if isinstance(m, str):
-        return {_norm(m)} - {""}
-    terms = {_norm(m.get("name", ""))}
-    rec = materials.get(str(m.get("hs_code", "")))
-    if rec:
-        terms.add(_norm(rec.get("name", "")))
-        terms.update(_norm(a) for a in rec.get("aliases", []) or [])
-    return {t for t in terms if len(t) >= 3}
+        terms = {_norm(m)} - {""}
+    else:
+        terms = {_norm(m.get("name", ""))}
+        rec = materials.get(str(m.get("hs_code", "")))
+        if rec:
+            terms.add(_norm(rec.get("name", "")))
+            terms.update(_norm(a) for a in rec.get("aliases", []) or [])
+
+    result = set()
+    for t in terms:
+        if not t:
+            continue
+        # Multi-word terms: keep if len >= 3
+        if " " in t:
+            if len(t) >= 3:
+                result.add(t)
+        # Single-word terms: keep if len >= 4 AND not in GENERIC_TERMS
+        else:
+            if len(t) >= 4 and t not in GENERIC_TERMS:
+                result.add(t)
+    return result
 
 def _mentions(text: str, terms: set[str]) -> bool:
-    return any(t in text for t in terms)
+    """Check if any term appears in text with word boundaries."""
+    for t in terms:
+        if re.search(r"(?<![a-z0-9])" + re.escape(t) + r"(?![a-z0-9])", text):
+            return True
+    return False
 
 def process_support(texts: list[str], pre_terms: list[set[str]], prod_terms: list[set[str]]) -> tuple[bool, bool]:
     """Returns (any_mention, fully_grounded). fully_grounded: one reference mentions >=1 precursor AND >=1 product."""

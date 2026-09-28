@@ -16,6 +16,37 @@ def test_process_support_full_and_any():
     assert process_support(texts, pre, prod) == (True, True)
     assert process_support(["nothing relevant"], pre, prod) == (False, False)
 
+def test_process_support_word_boundaries():
+    """atb should not match 'ask the chatbot'"""
+    texts = ["ask the chatbot for help"]
+    pre = [{"atb"}]  # This should NOT match
+    prod = [{"output"}]
+    assert process_support(texts, pre, prod) == (False, False)
+
+def test_material_terms_filters_generic():
+    """Generic single-word terms like 'salt' should be filtered out"""
+    mats = {}
+    # "salt" is generic, should be dropped
+    result = material_terms({"hs_code": "999999", "name": "salt"}, mats)
+    assert "salt" not in result
+    # "table salt" is multi-word with len >= 3, should be kept
+    result = material_terms({"hs_code": "999999", "name": "table salt"}, mats)
+    assert "table salt" in result
+
+def test_process_support_generic_terms_not_grounded():
+    """Process with only generic 'salt' product should not be grounded by 'table salt' mention"""
+    texts = ["table salt is used here"]
+    pre = []
+    prod = [set()]  # Empty set because "salt" was filtered out by material_terms
+    assert process_support(texts, pre, prod) == (False, False)
+
+def test_process_support_multiword_terms():
+    """Multi-word terms like 'boric acid' should still match correctly"""
+    texts = ["The process produces boric acid as output."]
+    pre = []
+    prod = [{"boric acid"}]
+    assert process_support(texts, pre, prod) == (True, False)
+
 def test_evaluate_folder(tmp_path: Path):
     url = "https://example.org/borax#top"
     (tmp_path / "reference_content").mkdir()
