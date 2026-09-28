@@ -1,3 +1,4 @@
+import collections
 import csv
 import json
 from pathlib import Path
@@ -23,7 +24,7 @@ def test_error_mode_counts_only_counts_not_correct(tmp_path):
     assert counts == {"hs_code_mismatch": 2, "unspecified": 1}
 
 
-def test_main_writes_per_label_and_pooled_rows(tmp_path, monkeypatch):
+def test_main_writes_per_label_file_and_separate_pooled_file(tmp_path, monkeypatch):
     a = tmp_path / "a.jsonl"
     b = tmp_path / "b.jsonl"
     _write(a, [
@@ -46,11 +47,32 @@ def test_main_writes_per_label_and_pooled_rows(tmp_path, monkeypatch):
     judge_error_modes_main()
 
     with open(tmp_path / "judge_error_modes.csv") as f:
-        rows = list(csv.DictReader(f))
+        per_label = list(csv.DictReader(f))
+    with open(tmp_path / "judge_error_modes_pooled.csv") as f:
+        pooled = list(csv.DictReader(f))
 
-    by_label = {(r["label"], r["error_mode"]): int(r["count"]) for r in rows}
+    # Per-label file has a `judge` column and no "ALL" pseudo-label mixed in
+    # with real labels (that was the bug: double-counting when a naive
+    # consumer summed this file's `count` column).
+    assert {r["label"] for r in per_label} == {"boron", "gallium"}
+    assert all(r["judge"] == "claude" for r in per_label)
+
+    by_label = {(r["label"], r["error_mode"]): int(r["count"]) for r in per_label}
     assert by_label[("boron", "hs_code_mismatch")] == 1
     assert by_label[("gallium", "hs_code_mismatch")] == 1
     assert by_label[("gallium", "hallucinated_process")] == 1
-    assert by_label[("ALL", "hs_code_mismatch")] == 2
-    assert by_label[("ALL", "hallucinated_process")] == 1
+
+    # Pooled file is separate, keyed by judge (not label).
+    assert {r["judge"] for r in pooled} == {"claude"}
+    by_pooled = {r["error_mode"]: int(r["count"]) for r in pooled}
+    assert by_pooled["hs_code_mismatch"] == 2
+    assert by_pooled["hallucinated_process"] == 1
+
+    # Per-label counts (for a given judge) must sum to that judge's pooled
+    # counts -- this is exactly the invariant a double-counting bug breaks.
+    per_label_sum: collections.Counter = collections.Counter()
+    for r in per_label:
+        per_label_sum[(r["judge"], r["error_mode"])] += int(r["count"])
+    for r in pooled:
+        assert per_label_sum[(r["judge"], r["error_mode"])] == int(r["count"])
+    assert sum(int(r["count"]) for r in per_label) == sum(int(r["count"]) for r in pooled)

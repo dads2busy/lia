@@ -6,11 +6,15 @@ Usage:
       --cache boron:claude "$DATA/judge_boron_claude.jsonl" \
       --cache gallium:claude "$DATA/judge_gallium_claude.jsonl" ...
 
-Writes judge_error_modes.csv with columns label,error_mode,count: one row
-per (label, error_mode) among that label's not-correct (overall_correct
-falsy) records, plus pooled rows under label "ALL" summing error_mode
-counts across every cache passed in the call. A missing/null error_mode on
-a not-correct record is counted under "unspecified".
+Writes two files (kept separate so a naive `sum(count)` over one file never
+double-counts):
+  - judge_error_modes.csv (columns: label,judge,error_mode,count) -- one row
+    per (label, judge, error_mode) among that cache's not-correct
+    (overall_correct falsy) records.
+  - judge_error_modes_pooled.csv (columns: judge,error_mode,count) -- for
+    each judge, error_mode counts summed across every label/cache for that
+    judge passed in the call.
+A missing/null error_mode on a not-correct record is counted as "unspecified".
 """
 from __future__ import annotations
 import argparse
@@ -45,21 +49,26 @@ def main() -> None:
     a = ap.parse_args()
     caches = {tuple(lj.split(":", 1)): Path(p) for lj, p in a.cache}
 
-    pooled: collections.Counter = collections.Counter()
-    rows: list[tuple[str, str, int]] = []
-    for (label, _judge), p in sorted(caches.items()):
+    per_label_rows: list[tuple[str, str, str, int]] = []
+    pooled: dict[str, collections.Counter] = collections.defaultdict(collections.Counter)
+    for (label, judge), p in sorted(caches.items()):
         counts = error_mode_counts(p)
-        pooled.update(counts)
+        pooled[judge].update(counts)
         for mode, n in sorted(counts.items()):
-            rows.append((label, mode, n))
-    for mode, n in sorted(pooled.items()):
-        rows.append(("ALL", mode, n))
+            per_label_rows.append((label, judge, mode, n))
 
     with open(a.out_dir / "judge_error_modes.csv", "w", newline="") as f:
         w = csv.writer(f)
-        w.writerow(["label", "error_mode", "count"])
-        for label, mode, n in rows:
-            w.writerow([label, mode, n])
+        w.writerow(["label", "judge", "error_mode", "count"])
+        for label, judge, mode, n in per_label_rows:
+            w.writerow([label, judge, mode, n])
+
+    with open(a.out_dir / "judge_error_modes_pooled.csv", "w", newline="") as f:
+        w = csv.writer(f)
+        w.writerow(["judge", "error_mode", "count"])
+        for judge in sorted(pooled):
+            for mode, n in sorted(pooled[judge].items()):
+                w.writerow([judge, mode, n])
 
 
 if __name__ == "__main__":

@@ -97,6 +97,34 @@ def test_parse_self_correction_takes_last_json_object():
     assert actual_model == "claude-sonnet-5-5"
 
 
+def test_parse_decoy_json_before_verdict_is_ignored():
+    # An unrelated/decoy JSON object appearing in prose before the real
+    # verdict must not be picked over the verdict that follows it.
+    result_text = (
+        'Here is an example of the schema: {"example": 1}\n\n'
+        + json.dumps(VALID_VERDICT)
+    )
+    stdout = _cli_stdout(result_text, model_usage={"claude-sonnet-5-5": {}})
+    verdict, actual_model = parse_claude_cli_stdout(stdout)
+    assert verdict.error_mode == "wrong_hs_code"
+    assert actual_model == "claude-sonnet-5-5"
+
+
+def test_parse_decoy_json_after_verdict_is_ignored():
+    # A decoy JSON object AFTER the real verdict (e.g. trailing unrelated
+    # JSON-ish prose) must not be picked just because it's last -- the
+    # parser must pick the last object that actually validates as a
+    # ProcessVerdict, not merely the last JSON object found.
+    result_text = (
+        json.dumps(VALID_VERDICT)
+        + '\n\n(note: {"example": 1} is unrelated trailing JSON)'
+    )
+    stdout = _cli_stdout(result_text, model_usage={"claude-sonnet-5-5": {}})
+    verdict, actual_model = parse_claude_cli_stdout(stdout)
+    assert verdict.error_mode == "wrong_hs_code"
+    assert actual_model == "claude-sonnet-5-5"
+
+
 def test_parse_result_missing_required_field_raises():
     incomplete = dict(VALID_VERDICT)
     del incomplete["overall_correct"]
