@@ -28,8 +28,13 @@ Example usage
 from __future__ import annotations
 
 import argparse
+import asyncio
 import json
+import os
+import re
+import subprocess
 import sys
+import tempfile
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from pathlib import Path
@@ -42,6 +47,33 @@ load_dotenv()
 
 from pydantic import BaseModel, Field as PydanticField
 from pydantic_ai import Agent
+
+# ---------------------------------------------------------------------------
+# Judge backend prefixes
+# ---------------------------------------------------------------------------
+# "claude-cli:<model>"  -> shell out to the `claude` CLI (see run_claude_cli_judge).
+# "ollama:<model>"      -> pydantic_ai OpenAIModel pointed at a local ollama server.
+CLAUDE_CLI_PREFIX = "claude-cli:"
+OLLAMA_PREFIX = "ollama:"
+
+JUDGE_SYSTEM_PROMPT = (
+    "You are an independent judge evaluating the factual accuracy of "
+    "material transformation processes in a knowledge hypergraph. "
+    "Output valid JSON only."
+)
+
+# Appended to the prompt for the claude-cli backend, which has no structured
+# output support of its own (no tools/MCP are enabled for the judge call).
+JUDGE_CLI_JSON_INSTRUCTIONS = """
+Respond with ONLY a single JSON object (no markdown fences, no commentary)
+with exactly these fields:
+  - process_plausible (boolean)
+  - inputs_outputs_correct (boolean)
+  - hs_codes_correct (boolean)
+  - overall_correct (boolean)
+  - error_mode (string, or null if overall_correct is true)
+  - rationale (string, 2-4 sentences)
+"""
 
 
 # ---------------------------------------------------------------------------
@@ -248,17 +280,149 @@ Return structured JSON with: process_plausible, inputs_outputs_correct, hs_codes
 """
 
 
-def make_judge_agent(judge_model: str, retries: int = 3) -> Agent:
+def make_judge_agent(judge_model: str, retries: int = 3) -> Optional[Agent]:
+    """Build a pydantic_ai Agent for the judge, or None for the claude-cli backend.
+
+    The claude-cli backend (judge_model starts with "claude-cli:") does not go
+    through pydantic_ai at all -- it shells out to the `claude` CLI. See
+    run_claude_cli_judge() below.
+    """
+    if judge_model.startswith(CLAUDE_CLI_PREFIX):
+        return None
+
+    if judge_model.startswith(OLLAMA_PREFIX):
+        # pydantic_ai 0.3.4: OpenAI-compatible model with a custom base_url,
+        # pointed at a local ollama server (OpenAI-compatible /v1 API).
+        from pydantic_ai.models.openai import OpenAIModel
+        from pydantic_ai.providers.openai import OpenAIProvider
+
+        model_name = judge_model[len(OLLAMA_PREFIX):]
+        base_url = os.environ.get("OLLAMA_BASE_URL", "http://localhost:11434/v1")
+        model = OpenAIModel(
+            model_name,
+            provider=OpenAIProvider(base_url=base_url, api_key="ollama"),
+        )
+        # Ask the (hybrid reasoning) model to skip its "thinking" pass. Note:
+        # for qwen3.6:27b this measurably helps on short/trivial prompts but
+        # does NOT reliably bound latency on the full judge prompt -- see
+        # task-1-report.md for measured timings and the decision this led to.
+        return Agent(
+            model=model,
+            output_type=ProcessVerdict,
+            system_prompt=JUDGE_SYSTEM_PROMPT,
+            model_settings={"extra_body": {"think": False}},
+            retries=retries,
+            output_retries=retries,
+        )
+
     return Agent(
         model=judge_model,
         output_type=ProcessVerdict,
-        system_prompt=(
-            "You are an independent judge evaluating the factual accuracy of "
-            "material transformation processes in a knowledge hypergraph. "
-            "Output valid JSON only."
-        ),
+        system_prompt=JUDGE_SYSTEM_PROMPT,
         retries=retries,
         output_retries=retries,
+    )
+
+
+# ---------------------------------------------------------------------------
+# claude-cli judge backend
+# ---------------------------------------------------------------------------
+
+_CODE_FENCE_RE = re.compile(r"^```(?:json)?\s*(.*?)\s*```$", re.DOTALL)
+
+
+def _strip_code_fence(text: str) -> str:
+    text = text.strip()
+    m = _CODE_FENCE_RE.match(text)
+    if m:
+        return m.group(1).strip()
+    return text
+
+
+def parse_claude_cli_stdout(stdout: str) -> tuple[ProcessVerdict, Optional[str]]:
+    """Parse the JSON stdout of `claude -p --output-format json` into a verdict.
+
+    Returns (verdict, actual_model_id). actual_model_id is the first key of
+    the CLI's `modelUsage` map (the real model id, e.g. "claude-sonnet-5"), or
+    None if that field is missing.
+
+    Raises ValueError / json.JSONDecodeError / pydantic.ValidationError on
+    malformed input -- the caller is responsible for retrying.
+    """
+    outer = json.loads(stdout)
+    if outer.get("is_error"):
+        raise ValueError(
+            f"claude CLI reported is_error=true: {outer.get('result')!r} "
+            f"(api_error_status={outer.get('api_error_status')!r})"
+        )
+    result_text = outer.get("result")
+    if not isinstance(result_text, str) or not result_text.strip():
+        raise ValueError("claude CLI response missing non-empty 'result' text")
+    inner_text = _strip_code_fence(result_text)
+    payload = json.loads(inner_text)
+    verdict = ProcessVerdict.model_validate(payload)
+    model_usage = outer.get("modelUsage") or {}
+    actual_model = next(iter(model_usage), None)
+    return verdict, actual_model
+
+
+def run_claude_cli_judge(
+    prompt: str,
+    model: str,
+    retries: int = 3,
+    timeout_s: int = 180,
+) -> tuple[ProcessVerdict, str]:
+    """Run a single judge query through the `claude` CLI as a subprocess.
+
+    Isolation: runs from a neutral temporary cwd, with all built-in tools
+    disabled (--tools ""), no MCP servers (--strict-mcp-config with no
+    --mcp-config), no user/project/local settings loaded
+    (--setting-sources ""), and no session persistence.
+    """
+    full_prompt = prompt + "\n" + JUDGE_CLI_JSON_INSTRUCTIONS
+    last_err: Optional[BaseException] = None
+
+    for attempt in range(1, retries + 1):
+        with tempfile.TemporaryDirectory(prefix="claude_judge_") as tmp_cwd:
+            cmd = [
+                "claude",
+                "-p",
+                "--model", model,
+                "--output-format", "json",
+                "--tools", "",
+                "--strict-mcp-config",
+                "--setting-sources", "",
+                "--no-session-persistence",
+                "--system-prompt", JUDGE_SYSTEM_PROMPT,
+                full_prompt,
+            ]
+            try:
+                proc = subprocess.run(
+                    cmd,
+                    cwd=tmp_cwd,
+                    capture_output=True,
+                    text=True,
+                    timeout=timeout_s,
+                )
+            except subprocess.TimeoutExpired as e:
+                last_err = e
+                continue
+
+            if proc.returncode != 0:
+                last_err = RuntimeError(
+                    f"claude CLI exit {proc.returncode}: {proc.stderr[:500]}"
+                )
+                continue
+
+            try:
+                verdict, actual_model = parse_claude_cli_stdout(proc.stdout)
+                return verdict, actual_model or f"{CLAUDE_CLI_PREFIX}{model}"
+            except Exception as e:  # malformed reply -- retry
+                last_err = e
+                continue
+
+    raise RuntimeError(
+        f"claude-cli judge failed after {retries} attempts: {last_err}"
     )
 
 
@@ -320,7 +484,7 @@ def append_cache(cache_path: Path, key: str, rec: JudgedRecord) -> None:
 
 async def judge_processes(
     processes: list[dict],
-    agent: Agent,
+    agent: Optional[Agent],
     judge_model: str,
     cache: Dict[str, JudgedRecord],
     cache_path: Path,
@@ -345,19 +509,25 @@ async def judge_processes(
 
         print(f"  [{i}/{len(to_judge)}] judging: {proc['description'][:60]}...")
         prompt = build_judge_prompt(proc)
+        judge_model_used = judge_model
         try:
-            result = await agent.run(prompt)
-            verdict: ProcessVerdict = result.output
+            if judge_model.startswith(CLAUDE_CLI_PREFIX):
+                cli_model = judge_model[len(CLAUDE_CLI_PREFIX):]
+                verdict, judge_model_used = await asyncio.to_thread(
+                    run_claude_cli_judge, prompt, cli_model
+                )
+            else:
+                result = await agent.run(prompt)
+                verdict = result.output
         except Exception as e:
-            print(f"    ERROR: {e}", file=sys.stderr)
-            verdict = ProcessVerdict(
-                process_plausible=False,
-                inputs_outputs_correct=False,
-                hs_codes_correct=False,
-                overall_correct=False,
-                error_mode="judge_error",
-                rationale=f"Judge call failed: {e}",
-            )
+            # Do NOT cache this as a permanent "judge_error" verdict: a
+            # transient outage or rate limit (observed in practice with the
+            # claude-cli backend) would otherwise be baked into the cache
+            # forever, defeating "rerun to resume/retry". Skip the item; a
+            # later run of this same command will retry it since it is
+            # still absent from the cache.
+            print(f"    ERROR (will retry on next run): {e}", file=sys.stderr)
+            continue
 
         rec = JudgedRecord(
             process_id=proc["id"],
@@ -371,7 +541,7 @@ async def judge_processes(
             error_mode=verdict.error_mode,
             rationale=verdict.rationale,
             judged_at_utc=datetime.now(timezone.utc).isoformat(),
-            judge_model=judge_model,
+            judge_model=judge_model_used,
         )
         cache[key] = rec
         append_cache(cache_path, key, rec)
@@ -502,7 +672,13 @@ def parse_args() -> argparse.Namespace:
     p.add_argument(
         "--judge-model",
         default="openai:gpt-4.1",
-        help="pydantic_ai model string for the judge (default: openai:gpt-4.1).",
+        help=(
+            "Judge model. Either a pydantic_ai model string (e.g. "
+            "'openai:gpt-4.1'), 'ollama:<model>' for a local ollama server "
+            "at $OLLAMA_BASE_URL (default http://localhost:11434/v1), or "
+            "'claude-cli:<model>' to shell out to the `claude` CLI "
+            "(default: openai:gpt-4.1)."
+        ),
     )
     p.add_argument(
         "--out-md",
