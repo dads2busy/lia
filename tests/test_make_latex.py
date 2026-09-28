@@ -62,3 +62,56 @@ def test_mekh_sizes_includes_gate_audit(tmp_path: Path):
     assert r"\newcommand{\MekhProcessesAll}{6}" in out
     assert r"\newcommand{\MekhUnscoredAll}{1}" in out and r"\newcommand{\MekhUntypedEdgesAll}{3}" in out
     assert r"\newcommand{\MekhUnregisteredEdgesAll}{2}" in out
+
+def _write_new_inputs(d: Path):
+    (d / "criticality_summary.csv").write_text(
+        "label,base_code,base_name,reach,n_pre,n_vertices,n_invalid_material_keys,n_edges,n_processes,n_processes_no_target,"
+        "n_processes_no_source,n_entries_untyped,n_entries_unregistered,n_tied_with_third,"
+        "top1_code,top1_name,top1_criticality,top2_code,top2_name,top2_criticality,top3_code,top3_name,top3_criticality\n"
+        "boron,280450,Elemental boron,73,1,74,0,127,129,2,31,61,65,2,"
+        "280700,Sulfuric acid,14,220190,Raw water & ice,10,252800,Natural borates,10\n")
+    (d / "rank_stability.csv").write_text(
+        "n_runs,base,p,k,samples,seed,borda_rbo_mean,borda_rbo_sd,borda_rbo_min,borda_rbo_max,borda_topk_overlap_mean,"
+        "borda_topk_overlap_sd,borda_topk_jaccard_mean,borda_topk_codes,critsum_rbo_mean,critsum_rbo_sd,critsum_rbo_min,"
+        "critsum_rbo_max,critsum_topk_overlap_mean,critsum_topk_overlap_sd,critsum_topk_jaccard_mean,pairwise_rbo_mean,"
+        "pairwise_rbo_sd,pairwise_topk_overlap_mean\n"
+        "7,280450,0.98,10,1000,0,0.5721,0.0288,0.5179,0.624,5.0167,0.9517,0.3412,281000 284019,0.6044,0.0348,0.5389,"
+        "0.6613,4.99,1.38,0.34,0.4218,0.0613,3.2921\n")
+    (d / "disruption_summary.csv").write_text(
+        "label,n_codes,n_invalid,n_absent,n_in_comtrade,n_dominated,frac_dominated,n_dominated_cascading,n_dominated_local,"
+        "total_dependents,max_code,max_name,max_supplier_iso3,max_supplier_name,max_share,max_dependents,max_dependents_frac,"
+        "dominated_codes,threshold\n"
+        "boron,74,0,2,72,4,0.0556,1,3,8,284019,Disodium tetraborate,TUR,Türkiye,0.7243,8,0.1096,x,0.6\n")
+    (d / "disruption_boron.csv").write_text(
+        "hs_code,name,status,total_exports,top_exporter_code,top_exporter_iso3,top_exporter_name,top_share,dominated,"
+        "n_dependents,dependents,dependents_frac,reach_loss\n"
+        "284019,Disodium tetraborate,ok,1.0,792,TUR,Türkiye,0.7243,1,8,281000 284011,0.1096,9\n"
+        "280450,Elemental boron,ok,1.0,392,JPN,Japan,0.3,0,,,,\n")
+
+def test_new_result_macros(tmp_path: Path):
+    _write_new_inputs(tmp_path)
+    out = build_numbers(tmp_path)
+    for m in [r"\newcommand{\CritBaseCodeBoron}{280450}", r"\newcommand{\CritReachBoron}{73}",
+              r"\newcommand{\CritTopNameBoron}{Sulfuric acid}", r"\newcommand{\CritTopCodeBoron}{280700}",
+              r"\newcommand{\CritTopBoron}{14}", r"\newcommand{\CritSecondNameBoron}{Raw water \& ice}",
+              r"\newcommand{\CritThirdBoron}{10}",
+              r"\newcommand{\RboMean}{0.572}", r"\newcommand{\RboSd}{0.029}", r"\newcommand{\RboRuns}{7}",
+              r"\newcommand{\RboPersistence}{0.98}", r"\newcommand{\RboTopTenOverlap}{5.0}",
+              r"\newcommand{\RboTopTenJaccard}{34\%}", r"\newcommand{\RboPairwiseMean}{0.422}",
+              r"\newcommand{\DisruptThreshold}{60\%}", r"\newcommand{\DisruptDominatedBoron}{4}",
+              r"\newcommand{\DisruptInComtradeBoron}{72}", r"\newcommand{\DisruptAbsentBoron}{2}",
+              r"\newcommand{\DisruptCascadingBoron}{1}", r"\newcommand{\DisruptMaxCodeBoron}{284019}",
+              r"\newcommand{\DisruptMaxSupplierBoron}{Türkiye}", r"\newcommand{\DisruptMaxShareBoron}{72\%}",
+              r"\newcommand{\DisruptMaxDependentsBoron}{8}", r"\newcommand{\DisruptMaxDependentsFracBoron}{11\%}"]:
+        assert m in out, m
+    names = [l.split("}{")[0][len("\\newcommand{\\"):] for l in out.splitlines() if l.startswith("\\newcommand")]
+    assert all(n.isalpha() for n in names)
+
+def test_new_tables_are_wrapped_in_macros(tmp_path: Path):
+    from scripts.eval.make_latex import build_tables
+    _write_new_inputs(tmp_path)
+    t = build_tables(tmp_path)
+    assert r"\newcommand{\CriticalityTable}{" in t and r"\label{table:criticality}" in t
+    assert r"\textbf{Elemental boron [280450]} & \textbf{73} \\" in t and r"Raw water \& ice [220190] & 10 \\" in t
+    assert r"\newcommand{\DisruptionTable}{" in t and r"\label{table:disruption}" in t
+    assert "Disodium tetraborate [284019] & Türkiye & 72\\% & 8 \\\\" in t and "280450" not in t.split("DisruptionTable")[1]

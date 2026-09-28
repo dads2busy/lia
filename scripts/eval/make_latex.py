@@ -75,6 +75,7 @@ def build_numbers(d: Path, primary_judge: str = "claude", process_counts: dict[s
     for r in _read(d / "topdown_coverage.csv"):
         L += [macro("CoverageMekhOnly", r["label"], r["mekh_only"]), macro("CoverageFrac", r["label"], pct(r["frac_mekh_only"])),
               macro("CoverageUsgs", r["label"], r["usgs_codes"]), macro("CoverageMekh", r["label"], r["mekh_codes"])]
+    L += _section6_numbers(d)
     # \newcommand errors on redefinition; keep the first line seen for any macro name (defensive dedupe).
     seen: dict[str, str] = {}
     for line in L:
@@ -158,6 +159,79 @@ def write_mekh_sizes_csv(rows: list[dict], path: Path) -> None:
         w.writeheader()
         w.writerows(rows)
 
+_TEX_ESC = {"\\": r"\textbackslash{}", "&": r"\&", "%": r"\%", "$": r"\$", "#": r"\#", "_": r"\_",
+            "{": r"\{", "}": r"\}", "~": r"\textasciitilde{}", "^": r"\textasciicircum{}"}
+def tex(s: str) -> str: return "".join(_TEX_ESC.get(ch, ch) for ch in str(s))
+def f3(x) -> str: return f"{float(x):.3f}"
+
+def _section6_numbers(d: Path) -> list[str]:
+    """Macros for Section 6 / RQ3 results: criticality_summary.csv, rank_stability.csv,
+    disruption_summary.csv (written by scripts/eval/criticality.py, rank_stability.py, disruption.py)."""
+    L = []
+    for r in _read(d / "criticality_summary.csv"):
+        l = r["label"]
+        L += [macro("CritBaseCode", l, r["base_code"]), macro("CritBaseName", l, tex(r["base_name"])),
+              macro("CritReach", l, r["reach"]), macro("CritPre", l, r["n_pre"]), macro("CritVertices", l, r["n_vertices"]),
+              macro("CritEdges", l, r["n_edges"]), macro("CritSourcelessEdges", l, r["n_processes_no_source"])]
+        for i, pos in enumerate(("Top", "Second", "Third"), 1):
+            L += [macro(f"Crit{pos}Code", l, r[f"top{i}_code"]), macro(f"Crit{pos}Name", l, tex(r[f"top{i}_name"])),
+                  macro(f"Crit{pos}", l, r[f"top{i}_criticality"])]
+    for r in _read(d / "rank_stability.csv")[:1]:
+        L += [macro("RboMean", "", f3(r["borda_rbo_mean"])), macro("RboSd", "", f3(r["borda_rbo_sd"])),
+              macro("RboMin", "", f3(r["borda_rbo_min"])), macro("RboMax", "", f3(r["borda_rbo_max"])),
+              macro("RboRuns", "", r["n_runs"]), macro("RboPersistence", "", r["p"]), macro("RboBase", "", r["base"]),
+              macro("RboTopK", "", r["k"]), macro("RboTieSamples", "", r["samples"]),
+              macro("RboTopTenOverlap", "", f"{float(r['borda_topk_overlap_mean']):.1f}"),
+              macro("RboTopTenOverlapSd", "", f"{float(r['borda_topk_overlap_sd']):.1f}"),
+              macro("RboTopTenJaccard", "", pct(r["borda_topk_jaccard_mean"])),
+              macro("RboCritsumMean", "", f3(r["critsum_rbo_mean"])), macro("RboCritsumSd", "", f3(r["critsum_rbo_sd"])),
+              macro("RboPairwiseMean", "", f3(r["pairwise_rbo_mean"])), macro("RboPairwiseSd", "", f3(r["pairwise_rbo_sd"])),
+              macro("RboPairwiseTopTenOverlap", "", f"{float(r['pairwise_topk_overlap_mean']):.1f}")]
+    ds = _read(d / "disruption_summary.csv")
+    if ds:
+        L.append(macro("DisruptThreshold", "", pct(ds[0]["threshold"])))
+    for r in ds:
+        l = r["label"]
+        L += [macro("DisruptCodes", l, r["n_codes"]), macro("DisruptInvalid", l, r["n_invalid"]),
+              macro("DisruptAbsent", l, r["n_absent"]), macro("DisruptInComtrade", l, r["n_in_comtrade"]),
+              macro("DisruptDominated", l, r["n_dominated"]), macro("DisruptDominatedFrac", l, pct(r["frac_dominated"])),
+              macro("DisruptCascading", l, r["n_dominated_cascading"]), macro("DisruptLocal", l, r["n_dominated_local"])]
+        if r["max_code"]:
+            L += [macro("DisruptMaxCode", l, r["max_code"]), macro("DisruptMaxName", l, tex(r["max_name"])),
+                  macro("DisruptMaxSupplier", l, tex(r["max_supplier_name"])), macro("DisruptMaxSupplierIso", l, r["max_supplier_iso3"]),
+                  macro("DisruptMaxShare", l, pct(r["max_share"])), macro("DisruptMaxDependents", l, r["max_dependents"]),
+                  macro("DisruptMaxDependentsFrac", l, pct(r["max_dependents_frac"]))]
+    return L
+
+def _section6_tables(d: Path) -> list[str]:
+    """Criticality and disruption tables, each wrapped in a macro (\\CriticalityTable,
+    \\DisruptionTable) because eval_tables.tex is \\input in the evaluation section while these
+    tables belong to Section 6: defining them there places nothing; the paper places them."""
+    T = []
+    cs = _read(d / "criticality_summary.csv")
+    if cs:
+        T += [r"\newcommand{\CriticalityTable}{\begin{table}[h]",
+              r"\caption{Top 3 critical materials in each MEKH. In each case, $m_{base}$ is written in bold. The criticality value for $m_{base}$ is $|R(m_{base} \cup \mathtt{Pre}, \Hcal)|$.}",
+              r"\begin{center}", r"\begin{tabular}{|R{0.8\linewidth}|l|} \hline", r"\toprule",
+              r"Material [HS Code] & Criticality \\", r"\midrule"]
+        for i, r in enumerate(cs):
+            if i: T.append(r"\midrule")
+            T.append(f"\\textbf{{{tex(r['base_name'])} [{r['base_code']}]}} & \\textbf{{{r['reach']}}} \\\\")
+            T += [f"{tex(r[f'top{k}_name'])} [{r[f'top{k}_code']}] & {r[f'top{k}_criticality']} \\\\" for k in (1, 2, 3) if r[f"top{k}_code"]]
+        T += [r"\bottomrule", r"\end{tabular}", r"\end{center}", r"\label{table:criticality}", r"\end{table}}", ""]
+    rows = []
+    for s in _read(d / "disruption_summary.csv"):
+        dom = [r for r in _read(d / f"disruption_{s['label']}.csv") if r["dominated"] == "1"]
+        rows += [(s["label"], r) for r in sorted(dom, key=lambda r: (-int(r["n_dependents"] or 0), r["hs_code"]))]
+    if rows:
+        T += [r"\newcommand{\DisruptionTable}{\begin{table}[t]\centering\small",
+              r"\caption{HS-6 codes whose top exporter supplies at least \DisruptThreshold{} of 2024 global exports (UN Comtrade), and the number of other MEKH materials lost when that exporter halts (every producing process disabled).}",
+              r"\label{table:disruption}", r"\begin{tabular}{lp{0.42\linewidth}lrr}\toprule",
+              r"MEKH & Material [HS Code] & Top exporter & Share & Dependents \\\midrule"]
+        T += [f"{cap(l)} & {tex(r['name'])} [{r['hs_code']}] & {tex(r['top_exporter_name'])} & {pct(r['top_share'])} & {r['n_dependents']} \\\\" for l, r in rows]
+        T += [r"\bottomrule\end{tabular}\end{table}}", ""]
+    return T
+
 def build_tables(d: Path) -> str:
     T = []
     js = _read(d / "judge_summary.csv"); ag = {r["label"]: r for r in _read(d / "judge_agreement.csv")}
@@ -186,6 +260,7 @@ def build_tables(d: Path) -> str:
               r"\label{tab:coverage}", r"\begin{tabular}{lrrrr}\toprule", r"MEKH & MEKH codes & USGS codes & Overlap & MEKH-only \\\midrule"]
         T += [f"{cap(r['label'])} & {r['mekh_codes']} & {r['usgs_codes']} & {r['overlap']} & {r['mekh_only']} ({pct(r['frac_mekh_only'])}) \\\\" for r in cv]
         T += [r"\bottomrule\end{tabular}\end{table}", ""]
+    T += _section6_tables(d)
     return "\n".join(T)
 
 def main() -> None:
