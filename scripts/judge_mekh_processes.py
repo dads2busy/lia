@@ -339,6 +339,38 @@ def _strip_code_fence(text: str) -> str:
     return text
 
 
+def _extract_last_json_object(text: str) -> dict:
+    """Scan `text` for JSON object(s) and return the LAST one found.
+
+    The judge is instructed to reply with only one JSON object, but in
+    practice it sometimes self-corrects mid-reply (e.g. emits a first
+    verdict, then "Wait -- correcting this:" followed by a second, final
+    verdict). A plain `json.loads()` fails on the trailing data in that case.
+    Scanning for every top-level JSON value and taking the last one picks up
+    the model's final answer instead of erroring out or silently keeping its
+    retracted first guess.
+    """
+    decoder = json.JSONDecoder()
+    n = len(text)
+    idx = 0
+    last_obj = None
+    while idx < n:
+        if text[idx].isspace():
+            idx += 1
+            continue
+        try:
+            obj, end = decoder.raw_decode(text, idx)
+        except json.JSONDecodeError:
+            idx += 1
+            continue
+        if isinstance(obj, dict):
+            last_obj = obj
+        idx = end
+    if last_obj is None:
+        raise ValueError(f"no JSON object found in claude CLI result text: {text!r}")
+    return last_obj
+
+
 def parse_claude_cli_stdout(stdout: str) -> tuple[ProcessVerdict, Optional[str]]:
     """Parse the JSON stdout of `claude -p --output-format json` into a verdict.
 
@@ -359,7 +391,7 @@ def parse_claude_cli_stdout(stdout: str) -> tuple[ProcessVerdict, Optional[str]]
     if not isinstance(result_text, str) or not result_text.strip():
         raise ValueError("claude CLI response missing non-empty 'result' text")
     inner_text = _strip_code_fence(result_text)
-    payload = json.loads(inner_text)
+    payload = _extract_last_json_object(inner_text)
     verdict = ProcessVerdict.model_validate(payload)
     model_usage = outer.get("modelUsage") or {}
     actual_model = next(iter(model_usage), None)

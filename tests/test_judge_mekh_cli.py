@@ -68,9 +68,33 @@ def test_parse_missing_result_field_raises():
 
 
 def test_parse_non_json_result_text_raises():
+    # Updated from json.JSONDecodeError: parsing now scans for JSON objects
+    # (see test_parse_self_correction_takes_last_json_object) rather than
+    # doing a single json.loads(), so text with no JSON at all raises a
+    # clear ValueError instead of a decode error at an arbitrary offset.
     stdout = _cli_stdout("Sure, here is my answer: it looks fine.")
-    with pytest.raises(json.JSONDecodeError):
+    with pytest.raises(ValueError):
         parse_claude_cli_stdout(stdout)
+
+
+def test_parse_self_correction_takes_last_json_object():
+    # Observed in practice: the model sometimes emits a first verdict, then
+    # second-guesses itself with prose and a corrected JSON object. The
+    # corrected (last) object must win, not the retracted first one.
+    first = dict(VALID_VERDICT, overall_correct=True, hs_codes_correct=True,
+                 error_mode=None, rationale="Looks fine.")
+    second = dict(VALID_VERDICT, overall_correct=False, hs_codes_correct=False,
+                  error_mode="hs_code_mismatch", rationale="Actually, the HS code is wrong.")
+    result_text = (
+        json.dumps(first)
+        + "\n\nWait -- correcting this: the rationale above is wrong. Corrected output:\n\n"
+        + json.dumps(second)
+    )
+    stdout = _cli_stdout(result_text, model_usage={"claude-sonnet-5-5": {}})
+    verdict, actual_model = parse_claude_cli_stdout(stdout)
+    assert verdict.overall_correct is False
+    assert verdict.error_mode == "hs_code_mismatch"
+    assert actual_model == "claude-sonnet-5-5"
 
 
 def test_parse_result_missing_required_field_raises():
