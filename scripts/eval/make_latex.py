@@ -239,6 +239,28 @@ _TEX_ESC = {"\\": r"\textbackslash{}", "&": r"\&", "%": r"\%", "$": r"\$", "#": 
 def tex(s: str) -> str: return "".join(_TEX_ESC.get(ch, ch) for ch in str(s))
 def f3(x) -> str: return f"{float(x):.3f}"
 
+def short_material_name(name: str, maxlen: int = 40) -> str:
+    """Deterministic short form of a material name for narrow table columns
+    (\\DisruptionTable): cut at the first top-level ';' or ',' (i.e. one not
+    inside parentheses, so a parenthetical aside like "(refined borax, other
+    than anhydrous)" is not sliced in half), then hard-truncate to maxlen
+    chars with an ellipsis. Applied to the display name only -- the HS code
+    alongside it is never touched."""
+    depth = 0
+    cut = None
+    for i, ch in enumerate(name):
+        if ch == "(":
+            depth += 1
+        elif ch == ")":
+            depth = max(0, depth - 1)
+        elif ch in ",;" and depth == 0:
+            cut = i
+            break
+    s = (name[:cut] if cut is not None else name).strip()
+    if len(s) > maxlen:
+        s = s[:maxlen].rstrip() + "..."
+    return s
+
 def _section6_numbers(d: Path) -> list[str]:
     """Macros for Section 6 / RQ3 results: criticality_summary.csv, rank_stability.csv,
     disruption_summary.csv (written by scripts/eval/criticality.py, rank_stability.py, disruption.py)."""
@@ -347,11 +369,15 @@ def _section6_tables(d: Path) -> list[str]:
         dom = [r for r in _read(d / f"disruption_{s['label']}.csv") if r["dominated"] == "1"]
         rows += [(s["label"], r) for r in sorted(dom, key=lambda r: (-int(r["n_dependents"] or 0), r["hs_code"]))]
     if rows:
+        # Column widths (lp{0.30\linewidth}lrrr) and abbreviated headers keep this within
+        # \columnwidth: at the old lp{0.38\linewidth}lrrr spec with full headers ("Top
+        # exporter"/"Reporters"/"Dependents") it overflowed application.tex's column by
+        # ~50pt (verified with latexmk -- see task-table-width-report.md).
         T += [r"\newcommand{\DisruptionTable}{\begin{table}[t]\centering\small",
-              r"\caption{HS-6 codes whose top exporter has at least \DisruptThreshold{} of 2024 exports as recorded by importing reporters (UN Comtrade mirror data). Reporters: economies reporting the code; Dependents: other MEKH materials lost if that exporter halts.}",
-              r"\label{table:disruption}", r"\begin{tabular}{lp{0.38\linewidth}lrrr}\toprule",
-              r"MEKH & Material [HS Code] & Top exporter & Share & Reporters & Dependents \\\midrule"]
-        T += [f"{cap(l)} & {tex(r['name'])} [{r['hs_code']}] & {tex(r['top_exporter_name'])} & {pct(r['top_share'])} & "
+              r"\caption{HS-6 codes whose top exporter has at least \DisruptThreshold{} of 2024 exports as recorded by importing reporters (UN Comtrade mirror data). Rep.: economies reporting the code; Dep.: other MEKH materials lost if that exporter halts.}",
+              r"\label{table:disruption}", r"\begin{tabular}{lp{0.30\linewidth}lrrr}\toprule",
+              r"MEKH & Material [HS] & Exporter & Share & Rep. & Dep. \\\midrule"]
+        T += [f"{cap(l)} & {tex(short_material_name(r['name']))} [{r['hs_code']}] & {tex(r['top_exporter_name'])} & {pct(r['top_share'])} & "
               f"{r.get('n_reporters', '')} & {r['n_dependents']} \\\\" for l, r in rows]
         T += [r"\bottomrule\end{tabular}\end{table}}", ""]
     return T

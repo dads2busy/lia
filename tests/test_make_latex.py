@@ -1,6 +1,6 @@
 import json
 from pathlib import Path
-from scripts.eval.make_latex import macro, pct, build_numbers, mekh_sizes, build_size_numbers
+from scripts.eval.make_latex import macro, pct, build_numbers, mekh_sizes, build_size_numbers, short_material_name
 
 def test_macro_and_pct():
     assert pct(0.8712) == r"87\%" and macro("JudgeN", "boron", 61) == r"\newcommand{\JudgeNBoron}{61}"
@@ -194,6 +194,45 @@ def test_new_tables_are_wrapped_in_macros(tmp_path: Path):
     assert "Boron & Disodium tetraborate [284019] & Türkiye & 72\\% & 85 & 8 \\\\" in t
     assert "280450" not in t.split("DisruptionTable")[1]
 
+def test_short_material_name():
+    # short names, and names with only a parenthesized comma, pass through untouched
+    assert short_material_name("Sodium perborate and other perborates") == "Sodium perborate and other perborates"
+    assert short_material_name("Methyl chloride (chloromethane, CH3Cl)") == "Methyl chloride (chloromethane, CH3Cl)"
+    # a top-level comma (outside any parens) cuts the name there, even if the remainder is short
+    assert short_material_name("Gadolinium gallium garnet, gallium-based garnet magnets") == "Gadolinium gallium garnet"
+    assert short_material_name("Calcium oxide (quicklime), industrial/technical grade") == "Calcium oxide (quicklime)"
+    # no top-level punctuation and too long: hard-truncated at 40 chars with an ellipsis
+    s = short_material_name("Gallium in ores and concentrates (trace by-product in bauxite and zinc ores)")
+    assert s == "Gallium in ores and concentrates (trace..." and len(s) == 42
+
+def test_disruption_table_fits_column_width(tmp_path: Path):
+    """\\DisruptionTable used to overflow application.tex's column by ~50pt
+    (lp{0.38\\linewidth}lrrr with full "Top exporter"/"Reporters"/"Dependents"
+    headers). Narrower material-name column + abbreviated headers + truncated
+    long names fix that (verified separately with latexmk); this locks in the
+    structural pieces and that no number changed."""
+    from scripts.eval.make_latex import build_tables
+    _write_new_inputs(tmp_path)
+    ds = tmp_path / "disruption_summary.csv"
+    ds.write_text(ds.read_text().replace("boron,74,0,2,72,4,", "boron,74,0,2,72,5,"))
+    (tmp_path / "disruption_boron.csv").write_text(
+        "hs_code,name,status,total_exports,top_exporter_code,top_exporter_iso3,top_exporter_name,top_share,dominated,"
+        "n_reporters,n_dependents,dependents,dependents_frac,reach_loss\n"
+        "284019,Disodium tetraborate,ok,1.0,792,TUR,Türkiye,0.7243,1,85,8,281000 284011,0.1096,9\n"
+        "280450,Elemental boron,ok,1.0,392,JPN,Japan,0.3,0,40,,,,\n"
+        "260600,Gallium in ores and concentrates (trace by-product in bauxite and zinc ores),ok,1.0,111,GIN,Guinea,"
+        "0.68,1,73,0,,0,0\n")
+    t = build_tables(tmp_path)
+    table = t.split(r"\newcommand{\DisruptionTable}")[1].split(r"\end{table}}")[0]
+    # narrower material-name column (was 0.38\linewidth) and abbreviated headers fit \columnwidth
+    assert r"\begin{tabular}{lp{0.30\linewidth}lrrr}" in table
+    assert r"MEKH & Material [HS] & Exporter & Share & Rep. & Dep. \\\midrule" in table
+    assert "Top exporter" not in table and "Reporters" not in table.split("\\midrule")[1] and "Dependents" not in table
+    # long name truncated with an ellipsis but its HS code and all numbers are untouched
+    assert "Gallium in ores and concentrates (trace... [260600] & Guinea & 68\\% & 73 & 0 \\\\" in table
+    # unchanged short name/numbers for the existing boron row
+    assert "Boron & Disodium tetraborate [284019] & Türkiye & 72\\% & 85 & 8 \\\\" in table
+
 def test_followup_macros_coverage_inclunreg_halfweight_sourceless(tmp_path: Path):
     from scripts.eval.make_latex import build_tables
     _write_new_inputs(tmp_path)
@@ -226,4 +265,4 @@ def test_followup_macros_coverage_inclunreg_halfweight_sourceless(tmp_path: Path
     names = [l.split("}{")[0][len("\\newcommand{\\"):] for l in out.splitlines() if l.startswith("\\newcommand")]
     assert all(n.isalpha() for n in names) and len(names) == len(set(names))
     t = build_tables(tmp_path)
-    assert "Share & Reporters & Dependents" in t and "& 72\\% & 85 & 8 \\\\" in t
+    assert "Share & Rep. & Dep." in t and "& 72\\% & 85 & 8 \\\\" in t
