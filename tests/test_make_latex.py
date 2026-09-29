@@ -35,6 +35,32 @@ def test_primary_judge_n_and_warns_on_mismatch(tmp_path: Path, capsys):
     err = capsys.readouterr().err
     assert "boron" in err and "gallium" in err  # warning about n disagreement between judges
 
+def test_pooled_kappa_and_agreement_macros(tmp_path: Path):
+    # Two labels, two judges each, full overlap (n_both == n for both
+    # judges) so the pooled kappa/agreement can be reconstructed exactly
+    # from judge_summary.csv (precision) + judge_agreement.csv (agreement,
+    # n_both), by weighting each label's contribution by n_both:
+    #   po_pooled = (0.7*10 + 0.9*10) / 20 = 0.80
+    #   pa_pooled = (0.8*10 + 0.4*10) / 20 = 0.60   (judge "claude")
+    #   pb_pooled = (0.6*10 + 0.4*10) / 20 = 0.50   (judge "llama")
+    #   pe = 0.6*0.5 + 0.4*0.5 = 0.50
+    #   kappa_pooled = (0.80 - 0.50) / (1 - 0.50) = 0.60
+    (tmp_path / "judge_summary.csv").write_text(
+        "label,judge,n,overall_correct,precision,ci_lo,ci_hi,plausible_rate,io_rate,hs_rate,inconsistent_count\n"
+        "boron,claude,10,8,0.8,0.5,0.95,0.9,0.9,0.8,0\n"
+        "boron,llama,10,6,0.6,0.4,0.8,0.9,0.9,0.8,0\n"
+        "gallium,claude,10,4,0.4,0.2,0.6,0.9,0.9,0.8,0\n"
+        "gallium,llama,10,4,0.4,0.2,0.6,0.9,0.9,0.8,0\n"
+    )
+    (tmp_path / "judge_agreement.csv").write_text(
+        "label,n_both,agreement,cohen_kappa\n"
+        "boron,10,0.700,0.30\n"
+        "gallium,10,0.900,0.80\n"
+    )
+    out = build_numbers(tmp_path)
+    assert r"\newcommand{\JudgeKappaAll}{0.60}" in out
+    assert r"\newcommand{\JudgeAgreementAll}{80\%}" in out
+
 def test_mekh_sizes_includes_gate_audit(tmp_path: Path):
     # 2 registered materials; classes: (i) truly untyped -- bare string / missing
     # or malformed hs_code; (ii) unregistered -- valid 6-digit code, not a

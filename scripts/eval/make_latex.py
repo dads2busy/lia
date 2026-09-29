@@ -34,6 +34,53 @@ def _primary_n(rows: list[dict], primary_judge: str) -> int:
         return next(iter(by_judge.values()))
     return int(rows[0]["n"])
 
+def _pooled_kappa_agreement(js: list[dict], ag: list[dict]) -> tuple[int, float, float] | None:
+    """Pool per-label judge_agreement.csv rows (weighted by n_both) into a
+    single kappa/agreement over ALL labels for a pair of judges, backing
+    \\JudgeKappaAll / \\JudgeAgreementAll.
+
+    Reconstructed from judge_summary.csv (each label's two judges'
+    precision, i.e. rate of overall_correct=True) and judge_agreement.csv
+    (each label's agreement rate and n_both), without re-reading the raw
+    jsonl caches: weighting each label's po/pa/pb by n_both and combining
+    them is exactly equivalent to concatenating every label's matched-key
+    records and computing kappa/agreement once over the pooled set,
+    *provided* n_both equals both judges' n for every label (i.e. both
+    judges judged every record -- true whenever neither judge skipped any
+    item). A mismatch is reported as a warning; the label is still
+    included using n_both as its weight.
+    """
+    if not ag:
+        return None
+    total_n = sum(int(r["n_both"]) for r in ag)
+    if total_n == 0:
+        return None
+    by_label_judge = {(r["label"], r["judge"]): r for r in js}
+    po_num = pa_num = pb_num = 0.0
+    for r in ag:
+        label = r["label"]; n_both = int(r["n_both"])
+        judges = sorted({x["judge"] for x in js if x["label"] == label})
+        if len(judges) != 2:
+            print(f"WARNING: pooled kappa/agreement skipped label={label!r}: "
+                  f"expected 2 judges in judge_summary.csv, found {judges}", file=sys.stderr)
+            continue
+        judge_a, judge_b = judges
+        n_a = int(by_label_judge[(label, judge_a)]["n"])
+        n_b = int(by_label_judge[(label, judge_b)]["n"])
+        if n_a != n_both or n_b != n_both:
+            print(f"WARNING: pooled kappa/agreement for label={label!r}: n_both={n_both} but "
+                  f"judge n's are {judge_a}={n_a}, {judge_b}={n_b} (partial overlap not exactly "
+                  f"reconstructable from summary CSVs alone -- using n_both as the weight)", file=sys.stderr)
+        po_num += float(r["agreement"]) * n_both
+        pa_num += float(by_label_judge[(label, judge_a)]["precision"]) * n_both
+        pb_num += float(by_label_judge[(label, judge_b)]["precision"]) * n_both
+    po = po_num / total_n
+    pa = pa_num / total_n
+    pb = pb_num / total_n
+    pe = pa * pb + (1 - pa) * (1 - pb)
+    kappa = 0.0 if pe == 1 else (po - pe) / (1 - pe)
+    return total_n, po, kappa
+
 def build_numbers(d: Path, primary_judge: str = "claude", process_counts: dict[str, int] | None = None) -> str:
     L = []
     js = _read(d / "judge_summary.csv")
@@ -64,8 +111,13 @@ def build_numbers(d: Path, primary_judge: str = "claude", process_counts: dict[s
         ok = sum(int(r["overall_correct"]) for r in rows)
         L += [macro("JudgePrecision", "all" + cap(judge), pct(ok / n if n else 0.0)),
               macro("JudgeN", "all" + cap(judge), n)]
-    for r in _read(d / "judge_agreement.csv"):
+    ag_rows = _read(d / "judge_agreement.csv")
+    for r in ag_rows:
         L += [macro("JudgeKappa", r["label"], f"{float(r['cohen_kappa']):.2f}"), macro("JudgeAgreement", r["label"], pct(r["agreement"]))]
+    pooled = _pooled_kappa_agreement(js, ag_rows)
+    if pooled is not None:
+        _n_pooled, po_pooled, kappa_pooled = pooled
+        L += [macro("JudgeKappa", "all", f"{kappa_pooled:.2f}"), macro("JudgeAgreement", "all", pct(po_pooled))]
     for r in _read(d / "evidence_support.csv"):
         L += [macro("EvidenceFull", r["label"], pct(r["frac_full"])), macro("EvidenceAny", r["label"], pct(r["frac_any"])),
               macro("EvidenceRefsFetched", r["label"], pct(r["frac_refs_with_content"])), macro("EvidenceNRefs", r["label"], r["n_refs"])]

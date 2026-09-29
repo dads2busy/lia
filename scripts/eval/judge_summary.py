@@ -27,6 +27,24 @@ def bootstrap_ci(bits: list[int], n_boot: int = 2000, seed: int = 0) -> tuple[fl
     means = sorted(sum(rng.choice(bits) for _ in range(n)) / n for _ in range(n_boot))
     return (means[int(0.025 * n_boot)], means[int(0.975 * n_boot) - 1])
 
+def _structurally_inconsistent(r: dict) -> bool:
+    """True if overall_correct disagrees with the three sub-criteria: all
+    three true but overall false, or overall true despite any being false.
+    This catches verdicts the rationale-regex (INCONSISTENT) misses -- e.g.
+    self-contradictory verdicts whose rationale text doesn't happen to use
+    one of the regex's stock phrases."""
+    sub_all_true = bool(r.get("process_plausible")) and bool(r.get("inputs_outputs_correct")) \
+        and bool(r.get("hs_codes_correct"))
+    overall = bool(r.get("overall_correct"))
+    return (sub_all_true and not overall) or (overall and not sub_all_true)
+
+def _is_inconsistent(r: dict) -> bool:
+    """A record is inconsistent if EITHER the rationale-regex flags it OR
+    the structural (sub-criteria vs. overall_correct) check flags it -- a
+    record matching both is still counted once, not twice."""
+    rationale_flag = (not r.get("overall_correct")) and bool(INCONSISTENT.search(r.get("rationale", "") or ""))
+    return rationale_flag or _structurally_inconsistent(r)
+
 def summarize_cache(path: Path) -> dict:
     rows = list(_rows(path).values())
     bits = [1 if r.get("overall_correct") else 0 for r in rows]
@@ -36,19 +54,33 @@ def summarize_cache(path: Path) -> dict:
             "precision": (sum(bits) / len(bits)) if bits else 0.0, "ci_lo": lo, "ci_hi": hi,
             "plausible_rate": rate("process_plausible"), "io_rate": rate("inputs_outputs_correct"),
             "hs_rate": rate("hs_codes_correct"),
-            "inconsistent_count": sum(1 for r in rows if not r.get("overall_correct")
-                                      and INCONSISTENT.search(r.get("rationale", "") or ""))}
+            "inconsistent_count": sum(1 for r in rows if _is_inconsistent(r))}
 
 def cohen_kappa(a: Path, b: Path) -> tuple[float, float]:
-    ra, rb = _rows(a), _rows(b); keys = sorted(set(ra) & set(rb))
-    if not keys: return (0.0, 0.0)
-    xa = [bool(ra[k].get("overall_correct")) for k in keys]
-    xb = [bool(rb[k].get("overall_correct")) for k in keys]
-    n = len(keys); po = sum(1 for i in range(n) if xa[i] == xb[i]) / n
-    pa, pb = sum(xa) / n, sum(xb) / n
+    _n, po, kappa = pooled_cohen_kappa([(a, b)])
+    return (po, kappa)
+
+def pooled_cohen_kappa(pairs: list[tuple[Path, Path]]) -> tuple[int, float, float]:
+    """Pool multiple (judge_a_path, judge_b_path) cache pairs -- e.g. one
+    pair per label/MEKH for the same two judges -- into a single
+    agreement/kappa computed over their concatenated matched-key records,
+    rather than averaging the per-pair kappas. Returns (n_total, agreement,
+    cohen_kappa)."""
+    xa_all: list[bool] = []
+    xb_all: list[bool] = []
+    for a, b in pairs:
+        ra, rb = _rows(a), _rows(b)
+        keys = sorted(set(ra) & set(rb))
+        xa_all.extend(bool(ra[k].get("overall_correct")) for k in keys)
+        xb_all.extend(bool(rb[k].get("overall_correct")) for k in keys)
+    n = len(xa_all)
+    if n == 0:
+        return (0, 0.0, 0.0)
+    po = sum(1 for i in range(n) if xa_all[i] == xb_all[i]) / n
+    pa, pb = sum(xa_all) / n, sum(xb_all) / n
     pe = pa * pb + (1 - pa) * (1 - pb)
     kappa = 0.0 if pe == 1 else (po - pe) / (1 - pe)
-    return (po, kappa)
+    return (n, po, kappa)
 
 def main() -> None:
     ap = argparse.ArgumentParser()
