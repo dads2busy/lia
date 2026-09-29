@@ -5,9 +5,11 @@ Usage: python scripts/eval/topdown_coverage.py --usgs "$DATA/usgs_mcs_hs_codes.c
           --folder boron "$STATE_B" [--folder gallium "$STATE_GA" ...]
 """
 from __future__ import annotations
-import argparse, csv, json
+import argparse, csv, json, re
 from collections import Counter
 from pathlib import Path
+
+SIX_DIGIT = re.compile(r"^\d{6}$")
 
 def mekh_codes(folder: Path) -> dict[str, tuple[str, int]]:
     state = json.loads((folder / "research_state.json").read_text())
@@ -16,7 +18,9 @@ def mekh_codes(folder: Path) -> dict[str, tuple[str, int]]:
         codes = {str(m["hs_code"]) for m in p.get("precursors", []) + p.get("products", [])
                  if isinstance(m, dict) and m.get("hs_code")}
         for c in codes: part[c] += 1
-    return {code: (rec.get("name", ""), part.get(code, 0)) for code, rec in state.get("materials", {}).items()}
+    # HS-6 material vertices only: a non-code key (gallium's "UNCLASSIFIED") is not a vertex
+    return {code: (rec.get("name", ""), part.get(code, 0)) for code, rec in state.get("materials", {}).items()
+            if SIX_DIGIT.match(str(code))}
 
 def coverage(codes: dict[str, tuple[str, int]], usgs: set[str]) -> tuple[dict, list[tuple[str, str, int]]]:
     only = sorted(((c, n, k) for c, (n, k) in codes.items() if c not in usgs), key=lambda t: -t[2])

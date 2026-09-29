@@ -133,3 +133,12 @@ def test_main_writes_both_csvs(tmp_path, monkeypatch):
     assert jrows["claude"]["n_invalid_edges"] == "1"
     assert jrows["claude"]["n_marked_hs_correct"] == "1"  # claude marked p2 correct despite invalid code
     assert jrows["llama"]["n_marked_hs_correct"] == "0"   # llama marked p2 incorrect
+
+
+def test_audit_state_counts_only_six_digit_material_keys():
+    # A non-code key such as "UNCLASSIFIED" is not an HS-6 material vertex.
+    state = {"materials": {"252800": {}, "999999": {}, "UNCLASSIFIED": {}}, "processes": {}}
+    audit = audit_state(state, {"252800"})
+    assert audit["n_materials"] == 2
+    assert audit["n_materials_valid"] == 1
+    assert abs(audit["frac_materials_valid"] - 0.5) < 1e-9

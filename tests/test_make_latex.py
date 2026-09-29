@@ -217,7 +217,9 @@ def test_short_material_name_never_unbalances_parens():
     boron (including isoto..."). Check every dominated-code name in the real
     disruption CSVs shipped in $DATA, plus adversarial synthetic names."""
     import csv as _csv
-    data_dir = Path("/Users/ads7fg/git/D-PI-2025-09-AAMAS-Bottom-Up-New-Format-/data/eval")
+    import os
+    # $EVAL_DATA_DIR (the paper's data/eval), else ./data next to tests/ (the supplementary ZIP layout)
+    data_dir = Path(os.environ.get("EVAL_DATA_DIR", Path(__file__).resolve().parents[1] / "data"))
     names = []
     if data_dir.exists():
         for f in data_dir.glob("disruption_*.csv"):
@@ -300,3 +302,33 @@ def test_followup_macros_coverage_inclunreg_halfweight_sourceless(tmp_path: Path
     assert all(n.isalpha() for n in names) and len(names) == len(set(names))
     t = build_tables(tmp_path)
     assert "Share & Rep. & Dep." in t and "& 72\\% & 85 & 8 \\\\" in t
+
+def test_mekh_sizes_counts_only_six_digit_material_keys(tmp_path: Path):
+    state = {"materials": {"111111": {}, "222222": {}, "UNCLASSIFIED": {}}, "processes": {}}
+    (tmp_path / "research_state.json").write_text(json.dumps(state))
+    assert mekh_sizes([("gallium", tmp_path)])[0]["n_materials"] == 2
+
+def test_size_numbers_emit_min_max_range_macros():
+    rows = [{"label": "boron", "n_materials": 74, "n_processes": 129, "n_unscored": 40, "n_below_tau": 0,
+             "n_untyped_edges": 50, "n_unregistered_edges": 10},
+            {"label": "germanium", "n_materials": 35, "n_processes": 63, "n_unscored": 20, "n_below_tau": 0,
+             "n_untyped_edges": 20, "n_unregistered_edges": 30},
+            {"label": "cobalt", "n_materials": 45, "n_processes": 71, "n_unscored": 5, "n_below_tau": 0,
+             "n_untyped_edges": 30, "n_unregistered_edges": 20}]
+    out = build_size_numbers(rows)
+    assert r"\newcommand{\MekhMaterialsMin}{35}" in out and r"\newcommand{\MekhMaterialsMax}{74}" in out
+    assert r"\newcommand{\MekhProcessesMin}{63}" in out and r"\newcommand{\MekhProcessesMax}{129}" in out
+    assert r"\newcommand{\MekhUntypedEdgesMin}{20}" in out and r"\newcommand{\MekhUntypedEdgesMax}{50}" in out
+    assert r"\newcommand{\MekhUnregisteredEdgesMin}{10}" in out and r"\newcommand{\MekhUnregisteredEdgesMax}{30}" in out
+    # percentages: min/max of the rounded per-MEKH fractions
+    assert r"\newcommand{\MekhUnscoredFracMin}{7\%}" in out and r"\newcommand{\MekhUnscoredFracMax}{32\%}" in out
+
+def test_judge_table_capitalizes_judge_names(tmp_path: Path):
+    from scripts.eval.make_latex import build_tables
+    (tmp_path / "judge_summary.csv").write_text(
+        "label,judge,n,overall_correct,precision,ci_lo,ci_hi,plausible_rate,io_rate,hs_rate,inconsistent_count\n"
+        "boron,claude,10,5,0.5,0.4,0.6,1,1,0.5,0\nboron,llama,10,6,0.6,0.5,0.7,1,1,0.6,0\n")
+    (tmp_path / "judge_agreement.csv").write_text("label,n_both,agreement,cohen_kappa\nboron,10,0.8,0.5\n")
+    out = build_tables(tmp_path)
+    assert "Boron & Claude & 10" in out and "Boron & Llama & 10" in out
+    assert "& claude &" not in out and "& llama &" not in out

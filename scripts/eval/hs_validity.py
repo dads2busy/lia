@@ -79,7 +79,8 @@ def _process_hs_codes(proc: dict) -> list[str]:
 
 def audit_state(state: dict, valid_codes: set[str]) -> dict:
     """Judge-independent structural HS-validity stats for one MEKH state."""
-    materials = state.get("materials", {})
+    # HS-6 material vertices only: a non-code key (gallium's "UNCLASSIFIED") is not a vertex
+    materials = [str(k) for k in state.get("materials", {}) if SIX_DIGIT.match(str(k))]
     n_materials = len(materials)
     n_materials_valid = sum(1 for code in materials if code in valid_codes)
 

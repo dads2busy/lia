@@ -21,6 +21,18 @@ SIX_DIGIT = re.compile(r"^\d{6}$")
 def cap(label: str) -> str: return label[:1].upper() + label[1:]
 def pct(x: float) -> str: return f"{round(float(x) * 100)}\\%"
 def macro(name: str, label: str, value) -> str: return f"\\newcommand{{\\{name}{cap(label)}}}{{{value}}}"
+def _range_macros(name: str, values: list[float], fmt=str) -> list[str]:
+    """\\<name>Min / \\<name>Max over per-MEKH values, so the paper never hard-codes
+    which MEKH is the smallest or largest. fmt formats a value as its per-MEKH macro does
+    (e.g. pct), so Min/Max print exactly one of the per-MEKH macros' values."""
+    if not values:
+        return []
+    return [macro(name, "Min", fmt(min(values))), macro(name, "Max", fmt(max(values)))]
+
+def _pct_range(name: str, fracs: list) -> list[str]:
+    # compare the rounded percentages, so Min/Max equal the printed per-MEKH values
+    return _range_macros(name, [round(float(x) * 100) for x in fracs], lambda v: f"{v}\\%")
+
 def _read(p: Path) -> list[dict]:
     return list(csv.DictReader(open(p, newline=""))) if p.exists() else []
 
@@ -107,6 +119,11 @@ def build_numbers(d: Path, primary_judge: str = "claude", process_counts: dict[s
     if js:
         L.append(macro("JudgeN", "all", n_all_primary))
     for judge in sorted({r["judge"] for r in js}):
+        rows = [r for r in js if r["judge"] == judge]
+        for fam, col in (("JudgePrecision", "precision"), ("JudgePlausible", "plausible_rate"),
+                         ("JudgeIO", "io_rate"), ("JudgeHS", "hs_rate")):
+            L += _pct_range(fam + cap(judge), [r[col] for r in rows])
+    for judge in sorted({r["judge"] for r in js}):
         rows = [r for r in js if r["judge"] == judge]; n = sum(int(r["n"]) for r in rows)
         ok = sum(int(r["overall_correct"]) for r in rows)
         L += [macro("JudgePrecision", "all" + cap(judge), pct(ok / n if n else 0.0)),
@@ -141,13 +158,20 @@ def build_numbers(d: Path, primary_judge: str = "claude", process_counts: dict[s
         L.append(macro("JudgeAgree" + suffix, "all", pct(r["agreement"])))
         if r["criterion"] == "hs_codes_correct":
             L.append(macro("JudgeKappa" + suffix, "all", f"{float(r['cohen_kappa']):.2f}"))
-    for r in _read(d / "evidence_support.csv"):
+    ev = _read(d / "evidence_support.csv")
+    L += _pct_range("EvidenceFull", [r["frac_full"] for r in ev]) + _pct_range("EvidenceAny", [r["frac_any"] for r in ev])
+    L += _pct_range("EvidenceRefsFetched", [r["frac_refs_with_content"] for r in ev])
+    for r in ev:
         L += [macro("EvidenceFull", r["label"], pct(r["frac_full"])), macro("EvidenceAny", r["label"], pct(r["frac_any"])),
               macro("EvidenceRefsFetched", r["label"], pct(r["frac_refs_with_content"])), macro("EvidenceNRefs", r["label"], r["n_refs"])]
-    for r in _read(d / "known_route_recall.csv"):
+    rc = _read(d / "known_route_recall.csv")
+    L += _range_macros("RoutesN", [int(r["n_routes"]) for r in rc])
+    for r in rc:
         L += [macro("RoutesN", r["label"], r["n_routes"]), macro("RecallLenient", r["label"], pct(r["recall_lenient"])),
               macro("RecallStrict", r["label"], pct(r["recall_strict"]))]
-    for r in _read(d / "topdown_coverage.csv"):
+    cv = _read(d / "topdown_coverage.csv")
+    L += _pct_range("CoverageFrac", [r["frac_mekh_only"] for r in cv])
+    for r in cv:
         L += [macro("CoverageMekhOnly", r["label"], r["mekh_only"]), macro("CoverageFrac", r["label"], pct(r["frac_mekh_only"])),
               macro("CoverageUsgs", r["label"], r["usgs_codes"]), macro("CoverageMekh", r["label"], r["mekh_codes"])]
     L += _section6_numbers(d)
@@ -204,7 +228,9 @@ def mekh_sizes(folders: list[tuple[str, Path]]) -> list[dict]:
     for label, path in folders:
         state = json.loads((Path(path) / "research_state.json").read_text())
         audit = gate_audit(state)
-        rows.append({"label": label, "n_materials": len(state.get("materials", {})), **audit})
+        # HS-6 material vertices only: a non-code key (gallium's "UNCLASSIFIED") is not a vertex
+        n_materials = sum(1 for k in state.get("materials", {}) if SIX_DIGIT.match(str(k)))
+        rows.append({"label": label, "n_materials": n_materials, **audit})
     return rows
 
 def build_size_numbers(rows: list[dict]) -> str:
@@ -225,6 +251,13 @@ def build_size_numbers(rows: list[dict]) -> str:
               macro("MekhUnscored", "all", sum(r["n_unscored"] for r in rows)),
               macro("MekhUntypedEdges", "all", sum(r["n_untyped_edges"] for r in rows)),
               macro("MekhUnregisteredEdges", "all", sum(r["n_unregistered_edges"] for r in rows))]
+        for fam, col in (("MekhMaterials", "n_materials"), ("MekhProcesses", "n_processes"),
+                         ("MekhUnscored", "n_unscored"), ("MekhUntypedEdges", "n_untyped_edges"),
+                         ("MekhUnregisteredEdges", "n_unregistered_edges")):
+            L += _range_macros(fam, [int(r[col]) for r in rows])
+        for fam, col in (("MekhUnscoredFrac", "n_unscored"), ("MekhUntypedEdgesFrac", "n_untyped_edges"),
+                         ("MekhUnregisteredEdgesFrac", "n_unregistered_edges")):
+            L += _pct_range(fam, [r[col] / r["n_processes"] if r["n_processes"] else 0.0 for r in rows])
     return "\n".join(L) + ("\n" if L else "")
 
 def write_mekh_sizes_csv(rows: list[dict], path: Path) -> None:
@@ -403,8 +436,8 @@ def build_tables(d: Path) -> str:
         T += [r"\begin{table}[t]\centering\small", r"\caption{RQ1 precision proxy: fraction of hyperedges judged fully correct (process, inputs/outputs, HS codes) by two independent LLM judges, with bootstrap 95\% CIs and inter-judge agreement ($\kappa$).}",
               r"\label{tab:judge}", r"\begin{tabular}{llrrrr}\toprule", r"MEKH & Judge & $n$ & Precision & 95\% CI & $\kappa$ \\\midrule"]
         for r in js:
-            T.append(f"{cap(r['label'])} & {r['judge']} & {r['n']} & {pct(r['precision'])} & [{pct(r['ci_lo'])}, {pct(r['ci_hi'])}] & {float(ag[r['label']]['cohen_kappa']):.2f} \\\\" if r['label'] in ag
-                     else f"{cap(r['label'])} & {r['judge']} & {r['n']} & {pct(r['precision'])} & [{pct(r['ci_lo'])}, {pct(r['ci_hi'])}] & -- \\\\")
+            T.append(f"{cap(r['label'])} & {cap(r['judge'])} & {r['n']} & {pct(r['precision'])} & [{pct(r['ci_lo'])}, {pct(r['ci_hi'])}] & {float(ag[r['label']]['cohen_kappa']):.2f} \\\\" if r['label'] in ag
+                     else f"{cap(r['label'])} & {cap(r['judge'])} & {r['n']} & {pct(r['precision'])} & [{pct(r['ci_lo'])}, {pct(r['ci_hi'])}] & -- \\\\")
         T += [r"\bottomrule\end{tabular}\end{table}", ""]
     ev = _read(d / "evidence_support.csv")
     if ev:
