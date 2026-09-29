@@ -201,9 +201,38 @@ def test_short_material_name():
     # a top-level comma (outside any parens) cuts the name there, even if the remainder is short
     assert short_material_name("Gadolinium gallium garnet, gallium-based garnet magnets") == "Gadolinium gallium garnet"
     assert short_material_name("Calcium oxide (quicklime), industrial/technical grade") == "Calcium oxide (quicklime)"
-    # no top-level punctuation and too long: hard-truncated at 40 chars with an ellipsis
+    # no top-level punctuation, too long, and the 40-char cut lands inside a still-open "(":
+    # cut before that "(" instead (dropping the whole parenthetical) -- a complete phrase,
+    # so no ellipsis, and parentheses stay balanced
     s = short_material_name("Gallium in ores and concentrates (trace by-product in bauxite and zinc ores)")
-    assert s == "Gallium in ores and concentrates (trace..." and len(s) == 42
+    assert s == "Gallium in ores and concentrates" and "..." not in s
+    # too long, no top-level punctuation, and the cut lands in plain text (any parens already
+    # closed before it): genuine mid-phrase cut, so it does get an ellipsis
+    s2 = short_material_name("Aluminum oxide (Al2O3) refined industrial grade powder blend")
+    assert s2 == "Aluminum oxide (Al2O3) refined industria..." and s2.count("(") == s2.count(")")
+
+def test_short_material_name_never_unbalances_parens():
+    """Regression for the review finding: hard truncation must never end
+    inside an unclosed '(' (it previously produced e.g. "Refined elemental
+    boron (including isoto..."). Check every dominated-code name in the real
+    disruption CSVs shipped in $DATA, plus adversarial synthetic names."""
+    import csv as _csv
+    data_dir = Path("/Users/ads7fg/git/D-PI-2025-09-AAMAS-Bottom-Up-New-Format-/data/eval")
+    names = []
+    if data_dir.exists():
+        for f in data_dir.glob("disruption_*.csv"):
+            if "summary" in f.name or "inclunreg" in f.name:
+                continue
+            with open(f, newline="") as fh:
+                names += [r["name"] for r in _csv.DictReader(fh) if r.get("dominated") == "1"]
+    names += ["Refined elemental boron (including isotopically enriched forms)",
+              "Disodium tetraborate (refined borax, other than anhydrous)",
+              "A" * 60, "B (" + "c" * 60 + ")", "(" * 5 + "d" * 50]
+    assert names
+    for n in names:
+        s = short_material_name(n)
+        assert s.count("(") == s.count(")"), (n, s)
+        assert len(s) <= 43, (n, s)  # 40 + "..." budget
 
 def test_disruption_table_fits_column_width(tmp_path: Path):
     """\\DisruptionTable used to overflow application.tex's column by ~50pt
@@ -228,10 +257,15 @@ def test_disruption_table_fits_column_width(tmp_path: Path):
     assert r"\begin{tabular}{lp{0.30\linewidth}lrrr}" in table
     assert r"MEKH & Material [HS] & Exporter & Share & Rep. & Dep. \\\midrule" in table
     assert "Top exporter" not in table and "Reporters" not in table.split("\\midrule")[1] and "Dependents" not in table
-    # long name truncated with an ellipsis but its HS code and all numbers are untouched
-    assert "Gallium in ores and concentrates (trace... [260600] & Guinea & 68\\% & 73 & 0 \\\\" in table
+    # long name shortened (cut before the unclosed "(", no ellipsis) but its HS code and all
+    # numbers are untouched
+    assert "Gallium in ores and concentrates [260600] & Guinea & 68\\% & 73 & 0 \\\\" in table
     # unchanged short name/numbers for the existing boron row
     assert "Boron & Disodium tetraborate [284019] & Türkiye & 72\\% & 85 & 8 \\\\" in table
+    # every material name in the table has balanced parentheses (no cut ending inside a "(")
+    import re
+    for cell in re.findall(r"& ([^&]+) \[\d{6}\] &", table):
+        assert cell.count("(") == cell.count(")"), cell
 
 def test_followup_macros_coverage_inclunreg_halfweight_sourceless(tmp_path: Path):
     from scripts.eval.make_latex import build_tables

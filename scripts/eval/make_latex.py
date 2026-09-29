@@ -243,9 +243,15 @@ def short_material_name(name: str, maxlen: int = 40) -> str:
     """Deterministic short form of a material name for narrow table columns
     (\\DisruptionTable): cut at the first top-level ';' or ',' (i.e. one not
     inside parentheses, so a parenthetical aside like "(refined borax, other
-    than anhydrous)" is not sliced in half), then hard-truncate to maxlen
-    chars with an ellipsis. Applied to the display name only -- the HS code
-    alongside it is never touched."""
+    than anhydrous)" is not sliced in half); if that is still longer than
+    maxlen, hard-truncate to maxlen chars. A hard truncation never ends
+    inside an unclosed "(": if the maxlen cut point falls inside a still-open
+    parenthetical, the cut moves back to before that "(" instead, dropping
+    the whole (necessarily balanced, since it starts after any top-level
+    split) parenthetical aside -- that yields a complete phrase, so no
+    ellipsis is added; only a genuine mid-phrase/mid-word cut gets one.
+    Applied to the display name only -- the HS code alongside it is never
+    touched. Always returns a string with balanced parentheses."""
     depth = 0
     cut = None
     for i, ch in enumerate(name):
@@ -257,9 +263,17 @@ def short_material_name(name: str, maxlen: int = 40) -> str:
             cut = i
             break
     s = (name[:cut] if cut is not None else name).strip()
-    if len(s) > maxlen:
-        s = s[:maxlen].rstrip() + "..."
-    return s
+    if len(s) <= maxlen:
+        return s
+    open_stack: list[int] = []
+    for i, ch in enumerate(s[:maxlen]):
+        if ch == "(":
+            open_stack.append(i)
+        elif ch == ")" and open_stack:
+            open_stack.pop()
+    if open_stack:
+        return s[:open_stack[0]].rstrip()
+    return s[:maxlen].rstrip() + "..."
 
 def _section6_numbers(d: Path) -> list[str]:
     """Macros for Section 6 / RQ3 results: criticality_summary.csv, rank_stability.csv,
