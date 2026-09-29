@@ -61,6 +61,45 @@ def test_pooled_kappa_and_agreement_macros(tmp_path: Path):
     assert r"\newcommand{\JudgeKappaAll}{0.60}" in out
     assert r"\newcommand{\JudgeAgreementAll}{80\%}" in out
 
+def test_hs_validity_and_criteria_agreement_macros(tmp_path: Path):
+    (tmp_path / "hs_validity.csv").write_text(
+        "label,n_materials,n_materials_hs6_valid,frac_materials_hs6_valid,n_processes,n_invalid_edges,frac_invalid_edges\n"
+        "boron,74,70,0.9459,129,40,0.3101\n"
+        "gallium,50,48,0.9600,87,20,0.2299\n"
+    )
+    (tmp_path / "hs_validity_judges.csv").write_text(
+        "label,judge,n_invalid_edges,n_marked_hs_correct,frac_marked_hs_correct\n"
+        "boron,claude,40,4,0.1000\n"
+        "boron,llama,40,36,0.9000\n"
+        "gallium,claude,20,2,0.1000\n"
+        "gallium,llama,20,18,0.9000\n"
+    )
+    (tmp_path / "judge_agreement_criteria_pooled.csv").write_text(
+        "criterion,n_both,agreement,cohen_kappa\n"
+        "process_plausible,216,0.990,0.40\n"
+        "inputs_outputs_correct,216,0.850,0.35\n"
+        "hs_codes_correct,216,0.530,0.11\n"
+        "overall_correct,216,0.510,0.11\n"
+    )
+    out = build_numbers(tmp_path)
+    assert r"\newcommand{\HsValidRegisteredFracBoron}{95\%}" in out
+    assert r"\newcommand{\HsInvalidEdgesBoron}{40}" in out
+    assert r"\newcommand{\HsInvalidEdgesGallium}{20}" in out
+    assert r"\newcommand{\HsInvalidEdgesAll}{60}" in out  # 40 + 20, pooled total
+    # Pooled per-judge rate on invalid-code hyperedges: (4+2)/(40+20) = 10%, (36+18)/(40+20) = 90%
+    assert r"\newcommand{\JudgeHsOnInvalidClaude}{10\%}" in out
+    assert r"\newcommand{\JudgeHsOnInvalidLlama}{90\%}" in out
+    # Per-label per-judge rate too
+    assert r"\newcommand{\JudgeHsOnInvalidBoronClaude}{10\%}" in out
+    assert r"\newcommand{\JudgeHsOnInvalidBoronLlama}{90\%}" in out
+    # Pooled per-criterion agreement/kappa
+    assert r"\newcommand{\JudgeAgreePlausibleAll}{99\%}" in out
+    assert r"\newcommand{\JudgeAgreeIOAll}{85\%}" in out
+    assert r"\newcommand{\JudgeAgreeHSAll}{53\%}" in out
+    assert r"\newcommand{\JudgeKappaHSAll}{0.11}" in out
+    names = [l.split("}{")[0][len("\\newcommand{\\"):] for l in out.splitlines() if l.startswith("\\newcommand")]
+    assert all(n.isalpha() for n in names) and len(names) == len(set(names))
+
 def test_mekh_sizes_includes_gate_audit(tmp_path: Path):
     # 2 registered materials; classes: (i) truly untyped -- bare string / missing
     # or malformed hs_code; (ii) unregistered -- valid 6-digit code, not a

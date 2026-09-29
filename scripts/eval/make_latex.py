@@ -118,6 +118,29 @@ def build_numbers(d: Path, primary_judge: str = "claude", process_counts: dict[s
     if pooled is not None:
         _n_pooled, po_pooled, kappa_pooled = pooled
         L += [macro("JudgeKappa", "all", f"{kappa_pooled:.2f}"), macro("JudgeAgreement", "all", pct(po_pooled))]
+    # Objective, LLM-free HS-6 validity audit (see scripts/eval/hs_validity.py).
+    hv_rows = _read(d / "hs_validity.csv")
+    for r in hv_rows:
+        L += [macro("HsValidRegisteredFrac", r["label"], pct(r["frac_materials_hs6_valid"])),
+              macro("HsInvalidEdges", r["label"], r["n_invalid_edges"])]
+    if hv_rows:
+        L.append(macro("HsInvalidEdges", "all", sum(int(r["n_invalid_edges"]) for r in hv_rows)))
+    hvj_rows = _read(d / "hs_validity_judges.csv")
+    for r in hvj_rows:
+        L.append(macro("JudgeHsOnInvalid", r["label"] + cap(r["judge"]), pct(r["frac_marked_hs_correct"])))
+    for judge in sorted({r["judge"] for r in hvj_rows}):
+        rows = [r for r in hvj_rows if r["judge"] == judge]
+        n = sum(int(r["n_invalid_edges"]) for r in rows)
+        n_correct = sum(int(r["n_marked_hs_correct"]) for r in rows)
+        L.append(macro("JudgeHsOnInvalid", judge, pct(n_correct / n if n else 0.0)))
+    # Pooled per-criterion agreement/kappa between the two judges.
+    crit_suffix = {"process_plausible": "Plausible", "inputs_outputs_correct": "IO",
+                   "hs_codes_correct": "HS", "overall_correct": "Overall"}
+    for r in _read(d / "judge_agreement_criteria_pooled.csv"):
+        suffix = crit_suffix.get(r["criterion"], cap(r["criterion"]))
+        L.append(macro("JudgeAgree" + suffix, "all", pct(r["agreement"])))
+        if r["criterion"] == "hs_codes_correct":
+            L.append(macro("JudgeKappa" + suffix, "all", f"{float(r['cohen_kappa']):.2f}"))
     for r in _read(d / "evidence_support.csv"):
         L += [macro("EvidenceFull", r["label"], pct(r["frac_full"])), macro("EvidenceAny", r["label"], pct(r["frac_any"])),
               macro("EvidenceRefsFetched", r["label"], pct(r["frac_refs_with_content"])), macro("EvidenceNRefs", r["label"], r["n_refs"])]

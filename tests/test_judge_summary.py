@@ -1,6 +1,10 @@
+import csv
 import json
 from pathlib import Path
-from scripts.eval.judge_summary import summarize_cache, cohen_kappa, bootstrap_ci, pooled_cohen_kappa
+from scripts.eval.judge_summary import (
+    summarize_cache, cohen_kappa, bootstrap_ci, pooled_cohen_kappa,
+    criterion_kappa, CRITERIA, main as judge_summary_main,
+)
 
 def _write(p: Path, rows):
     with open(p, "w") as f:
@@ -92,3 +96,58 @@ def test_pooled_cohen_kappa_matches_manual_concatenation(tmp_path):
 
 def test_pooled_cohen_kappa_empty_pairs_returns_zero():
     assert pooled_cohen_kappa([]) == (0, 0.0, 0.0)
+
+
+def test_criterion_kappa_matches_pooled_cohen_kappa_for_overall_correct(tmp_path):
+    # criterion_kappa(pairs, "overall_correct") must be identical to
+    # pooled_cohen_kappa(pairs) -- the latter is now a thin wrapper.
+    base = {"process_plausible": True, "inputs_outputs_correct": True, "hs_codes_correct": True, "rationale": ""}
+    a, b = tmp_path / "a.jsonl", tmp_path / "b.jsonl"
+    _write(a, [{"key": "k1", "overall_correct": True, **base}, {"key": "k2", "overall_correct": False, **base}])
+    _write(b, [{"key": "k1", "overall_correct": True, **base}, {"key": "k2", "overall_correct": True, **base}])
+    assert criterion_kappa([(a, b)], "overall_correct") == pooled_cohen_kappa([(a, b)])
+
+
+def test_criterion_kappa_on_hs_codes_correct(tmp_path):
+    a, b = tmp_path / "a.jsonl", tmp_path / "b.jsonl"
+    base = {"process_plausible": True, "inputs_outputs_correct": True, "overall_correct": True, "rationale": ""}
+    _write(a, [{"key": "k1", "hs_codes_correct": True, **base},
+               {"key": "k2", "hs_codes_correct": False, **base}])
+    _write(b, [{"key": "k1", "hs_codes_correct": False, **base},
+               {"key": "k2", "hs_codes_correct": False, **base}])
+    n, po, kappa = criterion_kappa([(a, b)], "hs_codes_correct")
+    assert n == 2
+    assert abs(po - 0.5) < 1e-9  # agree on k2 only
+
+
+def test_main_writes_judge_agreement_criteria_csvs(tmp_path, monkeypatch):
+    base = {"process_plausible": True, "inputs_outputs_correct": True, "hs_codes_correct": True, "rationale": ""}
+    a1, b1 = tmp_path / "a1.jsonl", tmp_path / "b1.jsonl"
+    a2, b2 = tmp_path / "a2.jsonl", tmp_path / "b2.jsonl"
+    _write(a1, [{"key": "k1", "overall_correct": True, **base}])
+    _write(b1, [{"key": "k1", "overall_correct": True, **base}])
+    _write(a2, [{"key": "k2", "overall_correct": False, **{**base, "hs_codes_correct": False}}])
+    _write(b2, [{"key": "k2", "overall_correct": True, **base}])
+
+    monkeypatch.setattr("sys.argv", [
+        "judge_summary.py",
+        "--cache", "boron:claude", str(a1), "--cache", "boron:llama", str(b1),
+        "--cache", "gallium:claude", str(a2), "--cache", "gallium:llama", str(b2),
+        "--out-dir", str(tmp_path),
+    ])
+    judge_summary_main()
+
+    with open(tmp_path / "judge_agreement_criteria.csv") as f:
+        per_label = list(csv.DictReader(f))
+    with open(tmp_path / "judge_agreement_criteria_pooled.csv") as f:
+        pooled = list(csv.DictReader(f))
+
+    assert {r["label"] for r in per_label} == {"boron", "gallium"}
+    assert {r["criterion"] for r in per_label} == set(CRITERIA)
+    assert len(per_label) == 2 * len(CRITERIA)
+
+    # Pooled file has no "label" column, one row per criterion.
+    assert "label" not in pooled[0]
+    assert {r["criterion"] for r in pooled} == set(CRITERIA)
+    pooled_overall = [r for r in pooled if r["criterion"] == "overall_correct"][0]
+    assert int(pooled_overall["n_both"]) == 2

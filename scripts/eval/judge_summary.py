@@ -5,7 +5,11 @@ Usage:
   python scripts/eval/judge_summary.py --out-dir "$DATA" \
       --cache boron:gpt "$DATA/judge_boron_gpt.jsonl" \
       --cache boron:claude "$DATA/judge_boron_claude.jsonl" ...
-Writes judge_summary.csv, judge_agreement.csv, judge_summary.md.
+Writes judge_summary.csv, judge_agreement.csv, judge_summary.md,
+judge_agreement_criteria.csv (per label, per criterion: plausible, I/O,
+HS, overall), and judge_agreement_criteria_pooled.csv (pooled across
+labels, per criterion; no "label" column, kept separate from the
+per-label file so summing n_both never double-counts).
 """
 from __future__ import annotations
 import argparse, csv, json, random, re
@@ -56,23 +60,30 @@ def summarize_cache(path: Path) -> dict:
             "hs_rate": rate("hs_codes_correct"),
             "inconsistent_count": sum(1 for r in rows if _is_inconsistent(r))}
 
+CRITERIA = ["process_plausible", "inputs_outputs_correct", "hs_codes_correct", "overall_correct"]
+
 def cohen_kappa(a: Path, b: Path) -> tuple[float, float]:
     _n, po, kappa = pooled_cohen_kappa([(a, b)])
     return (po, kappa)
 
 def pooled_cohen_kappa(pairs: list[tuple[Path, Path]]) -> tuple[int, float, float]:
+    """pooled_cohen_kappa(pairs) == criterion_kappa(pairs, "overall_correct")."""
+    return criterion_kappa(pairs, "overall_correct")
+
+def criterion_kappa(pairs: list[tuple[Path, Path]], criterion: str) -> tuple[int, float, float]:
     """Pool multiple (judge_a_path, judge_b_path) cache pairs -- e.g. one
     pair per label/MEKH for the same two judges -- into a single
-    agreement/kappa computed over their concatenated matched-key records,
-    rather than averaging the per-pair kappas. Returns (n_total, agreement,
-    cohen_kappa)."""
+    agreement/kappa on a given boolean criterion field (e.g.
+    "process_plausible", "hs_codes_correct", "overall_correct"), computed
+    over their concatenated matched-key records rather than averaging the
+    per-pair kappas. Returns (n_total, agreement, cohen_kappa)."""
     xa_all: list[bool] = []
     xb_all: list[bool] = []
     for a, b in pairs:
         ra, rb = _rows(a), _rows(b)
         keys = sorted(set(ra) & set(rb))
-        xa_all.extend(bool(ra[k].get("overall_correct")) for k in keys)
-        xb_all.extend(bool(rb[k].get("overall_correct")) for k in keys)
+        xa_all.extend(bool(ra[k].get(criterion)) for k in keys)
+        xb_all.extend(bool(rb[k].get(criterion)) for k in keys)
     n = len(xa_all)
     if n == 0:
         return (0, 0.0, 0.0)
@@ -102,6 +113,28 @@ def main() -> None:
             if len(js) >= 2:
                 po, k = cohen_kappa(js[0], js[1])
                 w.writerow([label, len(set(_rows(js[0])) & set(_rows(js[1]))), f"{po:.3f}", f"{k:.3f}"])
+
+    # Per-criterion agreement/kappa (plausible, I/O, HS, overall), per label
+    # and pooled. Pooled rows go in a SEPARATE file (no "label" column) --
+    # not an "ALL" row mixed into the per-label file -- so a naive
+    # sum(n_both) over one file never double-counts (see
+    # judge_error_modes.py / judge_error_modes_pooled.csv for the same
+    # convention, adopted after that exact bug was found there).
+    label_pairs: list[tuple[Path, Path]] = []
+    with open(a.out_dir / "judge_agreement_criteria.csv", "w", newline="") as f:
+        w = csv.writer(f); w.writerow(["label", "criterion", "n_both", "agreement", "cohen_kappa"])
+        for label in sorted({l for l, _ in caches}):
+            js = [caches[(l, j)] for (l, j) in sorted(caches) if l == label]
+            if len(js) >= 2:
+                label_pairs.append((js[0], js[1]))
+                for crit in CRITERIA:
+                    n, po, k = criterion_kappa([(js[0], js[1])], crit)
+                    w.writerow([label, crit, n, f"{po:.3f}", f"{k:.3f}"])
+    with open(a.out_dir / "judge_agreement_criteria_pooled.csv", "w", newline="") as f:
+        w = csv.writer(f); w.writerow(["criterion", "n_both", "agreement", "cohen_kappa"])
+        for crit in CRITERIA:
+            n, po, k = criterion_kappa(label_pairs, crit)
+            w.writerow([crit, n, f"{po:.3f}", f"{k:.3f}"])
     md = ["# Judge summary", "", "| label | judge | n | precision | 95% CI | plausible | I/O | HS | inconsistent |", "|---|---|--:|--:|--|--:|--:|--:|--:|"]
     for (label, judge), p in sorted(caches.items()):
         s = summarize_cache(p)
